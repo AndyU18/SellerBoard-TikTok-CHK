@@ -92,6 +92,12 @@ def summarize(df: pl.DataFrame, by: list[str]) -> pl.DataFrame:
     )
 
 
+def overall(df: pl.DataFrame) -> dict | None:
+    """Totales de todo el DataFrame (None si está vacío)."""
+    out = summarize(df.with_columns(pl.lit("all").alias("_all")), ["_all"]).drop("_all")
+    return out.to_dicts()[0] if out.height else None
+
+
 def profit_by_channel(df: pl.DataFrame) -> pl.DataFrame:
     return summarize(df, ["channel"])
 
