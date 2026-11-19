@@ -15,3 +15,7 @@ __pycache__/
 # Node
 node_modules/
 dist/
+
+# Tokens de plataformas (rotan; nunca commitear)
+tts_tokens*.json
+tokens*.json

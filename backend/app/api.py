@@ -9,12 +9,14 @@ from decimal import Decimal
 from typing import Annotated, Literal
 
 import polars as pl
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.connectors.tiktok_shop import TikTokShopClient, TikTokShopError
+from app.connectors.tiktok_shop_sync import sync_tiktok_shop
 from app.db import get_session
 from app.importers.canonical import (
     ImportValidationError,
@@ -74,6 +76,16 @@ async def upload_ad_spend(session: SessionDep, file: UploadFile) -> dict:
     result = await import_ad_spend(session, df)
     await session.commit()
     return asdict(result)
+
+
+@router.post("/sync/tiktok-shop")
+async def sync_tiktok(session: SessionDep, days: Annotated[int, Query(ge=1, le=365)] = 30) -> dict:
+    """Trae órdenes liquidadas de TikTok Shop de los últimos `days` días."""
+    try:
+        report = await sync_tiktok_shop(session, TikTokShopClient(), days=days)
+    except TikTokShopError as exc:
+        raise HTTPException(502, {"problems": [str(exc)]}) from exc
+    return {"days": report.days, "stats": report.stats, "imported": asdict(report.imported)}
 
 
 @router.get("/profit")
