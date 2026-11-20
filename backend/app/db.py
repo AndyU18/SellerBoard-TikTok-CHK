@@ -21,8 +21,17 @@ def make_engine(url: str) -> AsyncEngine:
         return create_async_engine(url).execution_options(
             schema_translate_map=dict.fromkeys(SCHEMAS)
         )
-    # El pooler de Supabase (modo transacción) no admite prepared statements de asyncpg.
-    return create_async_engine(url, connect_args={"statement_cache_size": 0}, pool_pre_ping=True)
+    # Supabase: el backend se conecta al Session pooler (IPv4, puerto 5432). SQLAlchemy ya
+    # mantiene su propio pool, así que se deja pequeño para no agotar las conexiones del plan.
+    # statement_cache_size=0 también funciona si algún día se usa el modo transacción (6543).
+    return create_async_engine(
+        url,
+        connect_args={"statement_cache_size": 0},
+        pool_size=5,
+        max_overflow=5,
+        pool_recycle=1800,
+        pool_pre_ping=True,
+    )
 
 
 engine = make_engine(settings.database_url)
@@ -38,9 +47,15 @@ def create_dev_schema(conn: Connection) -> None:
     """SQLite: crea las tablas y las filas fijas que en Supabase siembran las migraciones."""
     Base.metadata.create_all(conn)
     if not conn.scalar(select(ChannelRow.code).limit(1)):
-        conn.execute(insert(ChannelRow), [{"code": c.value, "name": c.value} for c in Channel])
+        conn.execute(
+            insert(ChannelRow), [{"code": c.value, "name": c.value} for c in Channel]
+        )
     if not conn.scalar(select(CostComponentType.id).limit(1)):
-        conn.execute(insert(CostComponentType).values(code="product_cost", name="Costo del producto"))
+        conn.execute(
+            insert(CostComponentType).values(
+                code="product_cost", name="Costo del producto"
+            )
+        )
 
 
 async def init_db() -> None:

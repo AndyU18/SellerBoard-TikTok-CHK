@@ -18,13 +18,39 @@ ORDER_ALIASES: dict[str, list[str]] = {
     "date": ["date", "fecha", "order date", "order_date", "purchase date"],
     "channel": ["channel", "canal", "marketplace"],
     "account": ["account", "cuenta", "store"],
-    "order_id": ["order_id", "order id", "order-id", "amazon-order-id", "orden", "order number"],
+    "order_id": [
+        "order_id",
+        "order id",
+        "order-id",
+        "amazon-order-id",
+        "orden",
+        "order number",
+    ],
     "sku": ["sku", "seller sku", "seller-sku", "product sku"],
     "product_name": ["product_name", "product name", "title", "nombre", "producto"],
     "units": ["units", "unidades", "quantity", "qty", "quantity-purchased"],
-    "gross_sales": ["gross_sales", "sales", "ventas", "item price", "item-price", "revenue"],
-    "promo": ["promo", "promotion", "promotions", "descuento", "item-promotion-discount"],
-    "platform_fees": ["platform_fees", "fees", "comisiones", "referral fee", "marketplace fees"],
+    "gross_sales": [
+        "gross_sales",
+        "sales",
+        "ventas",
+        "item price",
+        "item-price",
+        "revenue",
+    ],
+    "promo": [
+        "promo",
+        "promotion",
+        "promotions",
+        "descuento",
+        "item-promotion-discount",
+    ],
+    "platform_fees": [
+        "platform_fees",
+        "fees",
+        "comisiones",
+        "referral fee",
+        "marketplace fees",
+    ],
     "shipping_cost": ["shipping_cost", "shipping", "envio", "envío", "shipping cost"],
     "refund_amount": ["refund_amount", "refunds", "reembolsos", "refund"],
 }
@@ -39,7 +65,15 @@ AD_ALIASES: dict[str, list[str]] = {
 
 COGS_ALIASES: dict[str, list[str]] = {
     "sku": ORDER_ALIASES["sku"],
-    "cogs_unit": ["cogs_unit", "cogs", "cost", "unit cost", "costo", "costo unitario", "cost per unit"],
+    "cogs_unit": [
+        "cogs_unit",
+        "cogs",
+        "cost",
+        "unit cost",
+        "costo",
+        "costo unitario",
+        "cost per unit",
+    ],
     "product_name": ORDER_ALIASES["product_name"],
     "valid_from": ["valid_from", "vigente desde", "effective date", "effective_date"],
 }
@@ -70,11 +104,15 @@ def read_table(data: bytes, filename: str) -> pl.DataFrame:
         df = pl.read_excel(io.BytesIO(data), engine="calamine")
         return df.cast(dict.fromkeys(df.columns, pl.Utf8))
     if ext in {".csv", ".txt"}:
-        return pl.read_csv(io.BytesIO(data), infer_schema_length=0, truncate_ragged_lines=True)
+        return pl.read_csv(
+            io.BytesIO(data), infer_schema_length=0, truncate_ragged_lines=True
+        )
     raise ImportValidationError([f"Formato no soportado: {ext or 'sin extensión'}"])
 
 
-def _rename_to_canonical(df: pl.DataFrame, aliases: dict[str, list[str]]) -> pl.DataFrame:
+def _rename_to_canonical(
+    df: pl.DataFrame, aliases: dict[str, list[str]]
+) -> pl.DataFrame:
     lookup = {a: canon for canon, names in aliases.items() for a in names}
     rename: dict[str, str] = {}
     for col in df.columns:
@@ -116,7 +154,9 @@ def _check_rows(df: pl.DataFrame, checks: dict[str, pl.Expr]) -> None:
     for label, bad in checks.items():
         rows = df.with_row_index("n", offset=2).filter(bad)["n"].to_list()
         if rows:
-            problems.append(f"{label} en filas {rows[:10]}{'…' if len(rows) > 10 else ''}")
+            problems.append(
+                f"{label} en filas {rows[:10]}{'…' if len(rows) > 10 else ''}"
+            )
     if problems:
         raise ImportValidationError(problems)
 
@@ -124,7 +164,9 @@ def _check_rows(df: pl.DataFrame, checks: dict[str, pl.Expr]) -> None:
 def normalize_orders(raw: pl.DataFrame) -> pl.DataFrame:
     """Devuelve el esquema canónico de órdenes, listo para guardar y para profit.py."""
     df = _rename_to_canonical(raw, ORDER_ALIASES)
-    _require(df, ["date", "channel", "account", "order_id", "sku", "units", "gross_sales"])
+    _require(
+        df, ["date", "channel", "account", "order_id", "sku", "units", "gross_sales"]
+    )
     for c in COST_COLUMNS:
         if c not in df.columns:
             df = df.with_columns(pl.lit("0").alias(c))
@@ -186,7 +228,8 @@ def normalize_cogs(raw: pl.DataFrame) -> pl.DataFrame:
         {
             "SKU vacío": pl.col("sku").is_null() | (pl.col("sku") == ""),
             "Costo negativo": pl.col("cogs_unit") < 0,
-            "Fecha de vigencia inválida": pl.col("_has_date") & pl.col("valid_from").is_null(),
+            "Fecha de vigencia inválida": pl.col("_has_date")
+            & pl.col("valid_from").is_null(),
         },
     )
     out = out.drop("_has_date")

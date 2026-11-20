@@ -21,7 +21,11 @@ def _order(oid, items, status="DELIVERED"):
         "status": status,
         "create_time": T0,
         "line_items": [
-            {"seller_sku": sku, "product_name": f"P {sku}", "original_price": str(price)}
+            {
+                "seller_sku": sku,
+                "product_name": f"P {sku}",
+                "original_price": str(price),
+            }
             for sku, price in items
         ],
     }
@@ -93,7 +97,10 @@ def test_missing_sku_falls_back_to_sku_id_then_placeholder():
         "id": "1",
         "status": "DELIVERED",
         "create_time": T0,
-        "line_items": [{"sku_id": "999", "original_price": "5"}, {"original_price": "5"}],
+        "line_items": [
+            {"sku_id": "999", "original_price": "5"},
+            {"original_price": "5"},
+        ],
     }
     df, _ = build_order_lines([order], [_tx("1", 10, 0, 0, 0)])
     assert set(df["sku"]) == {"999", "(sin sku)"}
@@ -107,7 +114,9 @@ def test_empty_inputs_give_empty_typed_frame():
 # --- firma -------------------------------------------------------------------
 def test_signature_ignores_sign_and_access_token_and_param_order():
     a = sign_request("sec", "/p", {"b": "2", "a": "1"})
-    b = sign_request("sec", "/p", {"a": "1", "b": "2", "sign": "x", "access_token": "y"})
+    b = sign_request(
+        "sec", "/p", {"a": "1", "b": "2", "sign": "x", "access_token": "y"}
+    )
     assert a == b and len(a) == 64
 
 
@@ -130,7 +139,9 @@ def _client(tmp_path, handler, expire_in):
         tokens_file=tmp_path / "tokens.json",
         _env_file=None,
     )
-    return TikTokShopClient(settings, httpx.Client(transport=httpx.MockTransport(handler)))
+    return TikTokShopClient(
+        settings, httpx.Client(transport=httpx.MockTransport(handler))
+    )
 
 
 def test_expired_token_is_refreshed_and_persisted(tmp_path):
@@ -176,7 +187,9 @@ def test_valid_token_is_not_refreshed(tmp_path):
 
 def test_api_error_raises_with_code(tmp_path):
     def handler(req: httpx.Request):
-        return httpx.Response(200, json={"code": 105002, "message": "expired credentials"})
+        return httpx.Response(
+            200, json={"code": 105002, "message": "expired credentials"}
+        )
 
     client = _client(tmp_path, handler, expire_in=int(time.time()) + 86400)
     with pytest.raises(TikTokShopError) as exc:
@@ -191,7 +204,11 @@ def test_pagination_follows_next_page_token(tmp_path):
         token = req.url.params.get("page_token", "")
         item, nxt = pages[token]
         return httpx.Response(
-            200, json={"code": 0, "data": {"orders": [{"id": item}], "next_page_token": nxt}}
+            200,
+            json={
+                "code": 0,
+                "data": {"orders": [{"id": item}], "next_page_token": nxt},
+            },
         )
 
     client = _client(tmp_path, handler, expire_in=int(time.time()) + 86400)

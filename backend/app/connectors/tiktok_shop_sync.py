@@ -47,7 +47,9 @@ def _f(value: Any) -> float:
         return 0.0
 
 
-def _sum_transactions(transactions: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
+def _sum_transactions(
+    transactions: list[dict[str, Any]],
+) -> dict[str, dict[str, float]]:
     """Suma por orden (una orden puede tener varias transacciones: venta + reembolso)."""
     totals: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     for tx in transactions:
@@ -92,7 +94,9 @@ def build_order_lines(
         groups: dict[str, dict[str, Any]] = {}
         for item in order.get("line_items", []):
             sku = item.get("seller_sku") or item.get("sku_id") or "(sin sku)"
-            g = groups.setdefault(sku, {"units": 0, "weight": 0.0, "name": item.get("product_name")})
+            g = groups.setdefault(
+                sku, {"units": 0, "weight": 0.0, "name": item.get("product_name")}
+            )
             g["units"] += 1
             g["weight"] += _f(item.get("original_price"))
         if not groups:
@@ -102,7 +106,9 @@ def build_order_lines(
         day = datetime.fromtimestamp(int(order["create_time"]), tz=UTC).date()
 
         for sku, g in groups.items():
-            share = g["weight"] / total_weight if total_weight else g["units"] / total_units
+            share = (
+                g["weight"] / total_weight if total_weight else g["units"] / total_units
+            )
             rows.append(
                 {
                     "date": day,

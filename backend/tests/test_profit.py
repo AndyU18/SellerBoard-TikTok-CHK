@@ -31,14 +31,38 @@ def df():
     return pl.DataFrame(
         [
             # Amazon: 10 u x $50, fees 150, cogs 20/u, ads 40 -> 500-150-200-40 = 110
-            _row("amazon", "amazon_1", "GRN-100", 10, 500.0,
-                 platform_fees=150.0, cogs_unit=20.0, ad_spend=40.0),
+            _row(
+                "amazon",
+                "amazon_1",
+                "GRN-100",
+                10,
+                500.0,
+                platform_fees=150.0,
+                cogs_unit=20.0,
+                ad_spend=40.0,
+            ),
             # TikTok Shop pierde dinero: 150-40-25-100-30 = -45
-            _row("tiktok_shop", "tt_1", "GRN-100", 5, 150.0,
-                 platform_fees=40.0, shipping_cost=25.0, cogs_unit=20.0, ad_spend=30.0),
+            _row(
+                "tiktok_shop",
+                "tt_1",
+                "GRN-100",
+                5,
+                150.0,
+                platform_fees=40.0,
+                shipping_cost=25.0,
+                cogs_unit=20.0,
+                ad_spend=30.0,
+            ),
             # Walmart, otro producto: 100-12-40 = 48
-            _row("walmart", "wm_1", "TOR-003", 4, 100.0,
-                 platform_fees=12.0, cogs_unit=10.0),
+            _row(
+                "walmart",
+                "wm_1",
+                "TOR-003",
+                4,
+                100.0,
+                platform_fees=12.0,
+                cogs_unit=10.0,
+            ),
         ]
     )
 

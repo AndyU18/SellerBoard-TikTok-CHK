@@ -18,7 +18,14 @@ CSV = (
 
 def test_reads_aliases_money_and_dates():
     out = normalize_orders(read_table(CSV, "orders.csv"))
-    assert out.columns[:6] == ["date", "channel", "account", "order_id", "sku", "product_name"]
+    assert out.columns[:6] == [
+        "date",
+        "channel",
+        "account",
+        "order_id",
+        "sku",
+        "product_name",
+    ]
     amazon = out.filter(pl.col("channel") == "amazon").to_dicts()[0]
     assert amazon["gross_sales"] == 1149.98
     assert amazon["units"] == 2
@@ -27,7 +34,9 @@ def test_reads_aliases_money_and_dates():
 
 
 def test_costs_are_always_positive():
-    out = normalize_orders(read_table(CSV, "orders.csv")).filter(pl.col("channel") == "amazon")
+    out = normalize_orders(read_table(CSV, "orders.csv")).filter(
+        pl.col("channel") == "amazon"
+    )
     row = out.to_dicts()[0]
     assert row["platform_fees"] == 172.5  # venía como (172.50)
     assert row["shipping_cost"] == 10.0  # venía como -10.00
@@ -53,7 +62,9 @@ def test_rejects_bad_rows_with_row_numbers():
 
 def test_rejects_missing_required_column():
     with pytest.raises(ImportValidationError, match="Falta la columna: sku"):
-        normalize_orders(read_table(b"date,channel,account,order_id,units,sales\n", "o.csv"))
+        normalize_orders(
+            read_table(b"date,channel,account,order_id,units,sales\n", "o.csv")
+        )
 
 
 def test_rejects_unsupported_extension():
@@ -64,4 +75,6 @@ def test_rejects_unsupported_extension():
 def test_ad_spend_normalizes_negative_amounts():
     csv = b"date,channel,account,spend\n2026-11-18,TikTok Ads,tt_1,-25.50\n"
     row = normalize_ad_spend(read_table(csv, "ads.csv")).to_dicts()[0]
-    assert row["channel"] == "tiktok_shop" and row["amount"] == 25.5 and row["sku"] is None
+    assert (
+        row["channel"] == "tiktok_shop" and row["amount"] == 25.5 and row["sku"] is None
+    )

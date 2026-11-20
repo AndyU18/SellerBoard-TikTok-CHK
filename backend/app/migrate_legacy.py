@@ -35,13 +35,17 @@ from ad_spend s
 join accounts a on a.id = s.account_id
 left join products p on p.id = s.product_id
 """
-COGS_SQL = "select sku, name as product_name, cogs_unit from products where cogs_unit > 0"
+COGS_SQL = (
+    "select sku, name as product_name, cogs_unit from products where cogs_unit > 0"
+)
 
 
 def _query(con: sqlite3.Connection, sql: str) -> pl.DataFrame:
     cur = con.execute(sql)
     cols = [c[0] for c in cur.description]
-    return pl.DataFrame(cur.fetchall(), schema=cols, orient="row", infer_schema_length=None)
+    return pl.DataFrame(
+        cur.fetchall(), schema=cols, orient="row", infer_schema_length=None
+    )
 
 
 def read_legacy(path: Path) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
@@ -52,7 +56,13 @@ def read_legacy(path: Path) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
             pl.col("units").cast(pl.Int64),
             *[
                 pl.col(c).cast(pl.Float64)
-                for c in ("gross_sales", "promo", "platform_fees", "shipping_cost", "refund_amount")
+                for c in (
+                    "gross_sales",
+                    "promo",
+                    "platform_fees",
+                    "shipping_cost",
+                    "refund_amount",
+                )
             ],
         )
         ads = _query(con, ADS_SQL).with_columns(

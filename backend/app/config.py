@@ -21,7 +21,9 @@ class Settings(BaseSettings):
     max_upload_bytes: int = 20 * 1024 * 1024
 
     # extra="ignore": el mismo .env guarda variables TTS_*/TTADS_* de los conectores.
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="CHK_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_prefix="CHK_", extra="ignore"
+    )
 
 
 settings = Settings()

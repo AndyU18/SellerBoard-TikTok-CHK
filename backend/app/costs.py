@@ -26,7 +26,9 @@ class CostHistory:
 
     def __init__(self, rows: list[tuple[int, int, date, float]]):
         series: dict[tuple[int, int], list[tuple[date, float]]] = defaultdict(list)
-        for product_id, component_id, valid_from, amount in sorted(rows, key=lambda r: r[2]):
+        for product_id, component_id, valid_from, amount in sorted(
+            rows, key=lambda r: r[2]
+        ):
             series[(product_id, component_id)].append((valid_from, amount))
         self._dates = {k: [d for d, _ in v] for k, v in series.items()}
         self._amounts = {k: [a for _, a in v] for k, v in series.items()}
@@ -66,7 +68,9 @@ async def product_cost_component_id(session: AsyncSession) -> int:
         select(CostComponentType.id).where(CostComponentType.code == PRODUCT_COST)
     )
     if component_id is None:
-        raise RuntimeError(f"Falta el tipo de costo '{PRODUCT_COST}' en catalog.cost_component_type")
+        raise RuntimeError(
+            f"Falta el tipo de costo '{PRODUCT_COST}' en catalog.cost_component_type"
+        )
     return component_id
 
 
@@ -75,21 +79,30 @@ async def set_product_cost(
     product_id: int,
     amount: Decimal,
     valid_from: date | None = None,
+    *,
+    component_id: int | None = None,
+    existing: list[ProductCostHistory] | None = None,
 ) -> bool:
     """Fija el costo del producto desde `valid_from`. Devuelve True si cambió algo.
 
     Sin fecha: si el producto aún no tiene costo rige desde siempre; si ya tenía, rige desde hoy
     (no reescribe lo ya calculado antes de hoy).
+    `component_id` y `existing` los pasan las cargas masivas (ya los leyeron en lote); `existing`
+    se actualiza con la fila nueva para que la siguiente llamada la vea.
     """
-    component_id = await product_cost_component_id(session)
-    existing = (
-        await session.scalars(
-            select(ProductCostHistory).where(
-                ProductCostHistory.product_id == product_id,
-                ProductCostHistory.component_type_id == component_id,
-            )
+    if component_id is None:
+        component_id = await product_cost_component_id(session)
+    if existing is None:
+        existing = list(
+            (
+                await session.scalars(
+                    select(ProductCostHistory).where(
+                        ProductCostHistory.product_id == product_id,
+                        ProductCostHistory.component_type_id == component_id,
+                    )
+                )
+            ).all()
         )
-    ).all()
     if valid_from is None:
         valid_from = date.today() if existing else BASE_VALID_FROM
 
@@ -100,16 +113,18 @@ async def set_product_cost(
         return changed
 
     current = max(
-        (r for r in existing if r.valid_from <= valid_from), key=lambda r: r.valid_from, default=None
+        (r for r in existing if r.valid_from <= valid_from),
+        key=lambda r: r.valid_from,
+        default=None,
     )
     if current is not None and current.amount == amount:
         return False  # ya rige ese mismo costo; no se crea una vigencia redundante
-    session.add(
-        ProductCostHistory(
-            product_id=product_id,
-            component_type_id=component_id,
-            amount=amount,
-            valid_from=valid_from,
-        )
+    row = ProductCostHistory(
+        product_id=product_id,
+        component_type_id=component_id,
+        amount=amount,
+        valid_from=valid_from,
     )
+    session.add(row)
+    existing.append(row)
     return True

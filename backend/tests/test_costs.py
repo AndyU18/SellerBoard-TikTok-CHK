@@ -57,14 +57,20 @@ async def test_cost_change_applies_from_its_date_and_keeps_past_profit(client):
     pid = (await client.get("/api/products")).json()[0]["id"]
 
     # Primer costo sin fecha: rige desde siempre. Segundo, desde mayo.
-    assert (await client.put(f"/api/products/{pid}/cogs", json={"cogs_unit": 10})).status_code == 200
+    assert (
+        await client.put(f"/api/products/{pid}/cogs", json={"cogs_unit": 10})
+    ).status_code == 200
     r = await client.put(
         f"/api/products/{pid}/cogs", json={"cogs_unit": 20, "valid_from": "2026-05-01"}
     )
     assert r.status_code == 200
 
-    jan = (await client.get("/api/profit?group_by=product&start=2026-01-01&end=2026-01-31")).json()
-    jun = (await client.get("/api/profit?group_by=product&start=2026-06-01&end=2026-06-30")).json()
+    jan = (
+        await client.get("/api/profit?group_by=product&start=2026-01-01&end=2026-01-31")
+    ).json()
+    jun = (
+        await client.get("/api/profit?group_by=product&start=2026-06-01&end=2026-06-30")
+    ).json()
     assert jan["totals"]["cogs"] == 20.0  # 2 u x 10 (el costo viejo no se reescribe)
     assert jun["totals"]["cogs"] == 40.0  # 2 u x 20
     assert (await client.get("/api/products")).json()[0]["cogs_unit"] == 20.0
@@ -77,16 +83,24 @@ async def test_same_cost_does_not_create_redundant_vigencia(client):
     pid = (await client.get("/api/products")).json()[0]["id"]
     await client.put(f"/api/products/{pid}/cogs", json={"cogs_unit": 10})
     csv = b"sku,cost\nX,10\n"
-    r = await client.post("/api/import/cogs", files={"file": ("c.csv", csv, "text/csv")})
+    r = await client.post(
+        "/api/import/cogs", files={"file": ("c.csv", csv, "text/csv")}
+    )
     assert r.json()["updated"] == 0 and r.json()["products_created"] == 0
 
 
 @pytest.mark.asyncio
 async def test_cogs_csv_accepts_valid_from_and_rejects_bad_date(client):
-    await client.post("/api/import/orders", files={"file": ("o.csv", ORDERS, "text/csv")})
+    await client.post(
+        "/api/import/orders", files={"file": ("o.csv", ORDERS, "text/csv")}
+    )
     good = b"sku,cost,valid_from\nX,15,2026-03-01\n"
-    r = await client.post("/api/import/cogs", files={"file": ("c.csv", good, "text/csv")})
+    r = await client.post(
+        "/api/import/cogs", files={"file": ("c.csv", good, "text/csv")}
+    )
     assert r.status_code == 200
     bad = b"sku,cost,valid_from\nX,15,no-es-fecha\n"
-    r = await client.post("/api/import/cogs", files={"file": ("c.csv", bad, "text/csv")})
+    r = await client.post(
+        "/api/import/cogs", files={"file": ("c.csv", bad, "text/csv")}
+    )
     assert r.status_code == 422

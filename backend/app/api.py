@@ -53,7 +53,9 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-async def _normalized(file: UploadFile, normalize: Callable[[pl.DataFrame], pl.DataFrame]):
+async def _normalized(
+    file: UploadFile, normalize: Callable[[pl.DataFrame], pl.DataFrame]
+):
     data = await file.read()
     if len(data) > settings.max_upload_bytes:
         raise HTTPException(413, "Archivo demasiado grande")
@@ -62,7 +64,9 @@ async def _normalized(file: UploadFile, normalize: Callable[[pl.DataFrame], pl.D
     except ImportValidationError as exc:
         raise HTTPException(422, {"problems": exc.problems}) from exc
     except pl.exceptions.PolarsError as exc:
-        raise HTTPException(422, {"problems": [f"No se pudo leer el archivo: {exc}"]}) from exc
+        raise HTTPException(
+            422, {"problems": [f"No se pudo leer el archivo: {exc}"]}
+        ) from exc
 
 
 @router.post("/import/orders")
@@ -90,13 +94,19 @@ async def upload_cogs(session: SessionDep, file: UploadFile) -> dict:
 
 
 @router.post("/sync/tiktok-shop")
-async def sync_tiktok(session: SessionDep, days: Annotated[int, Query(ge=1, le=365)] = 30) -> dict:
+async def sync_tiktok(
+    session: SessionDep, days: Annotated[int, Query(ge=1, le=365)] = 30
+) -> dict:
     """Trae órdenes liquidadas de TikTok Shop de los últimos `days` días."""
     try:
         report = await sync_tiktok_shop(session, TikTokShopClient(), days=days)
     except TikTokShopError as exc:
         raise HTTPException(502, {"problems": [str(exc)]}) from exc
-    return {"days": report.days, "stats": report.stats, "imported": asdict(report.imported)}
+    return {
+        "days": report.days,
+        "stats": report.stats,
+        "imported": asdict(report.imported),
+    }
 
 
 @router.get("/profit")
@@ -108,7 +118,9 @@ async def profit(
     channel: Channel | None = None,
     account: str | None = None,
 ) -> dict:
-    df = await load_profit_frame(session, start=start, end=end, channel=channel, account=account)
+    df = await load_profit_frame(
+        session, start=start, end=end, channel=channel, account=account
+    )
     rows = summarize(df, GROUP_COLUMNS[group_by])
     if "sku" in rows.columns:
         names = df.group_by("sku").agg(pl.col("product_name").drop_nulls().first())
@@ -125,16 +137,23 @@ async def profit_timeseries(
     channel: Channel | None = None,
     account: str | None = None,
 ) -> dict:
-    df = await load_profit_frame(session, start=start, end=end, channel=channel, account=account)
+    df = await load_profit_frame(
+        session, start=start, end=end, channel=channel, account=account
+    )
     every = "1d" if interval == "day" else "1mo"
     df = df.with_columns(pl.col("date").dt.truncate(every).alias("period"))
-    return {"interval": interval, "rows": summarize(df, ["period", "channel"]).to_dicts()}
+    return {
+        "interval": interval,
+        "rows": summarize(df, ["period", "channel"]).to_dicts(),
+    }
 
 
 @router.get("/accounts")
 async def list_accounts(session: SessionDep) -> list[dict]:
     rows = (
-        await session.scalars(select(Account).order_by(Account.channel_code, Account.name))
+        await session.scalars(
+            select(Account).order_by(Account.channel_code, Account.name)
+        )
     ).all()
     return [{"id": a.id, "channel": a.channel_code, "name": a.name} for a in rows]
 
@@ -146,7 +165,12 @@ async def list_products(session: SessionDep) -> list[dict]:
     costs = await load_cost_history(session)
     today = date.today()
     return [
-        {"id": p.id, "sku": p.sku, "name": p.name, "cogs_unit": costs.unit_cost(p.id, today)}
+        {
+            "id": p.id,
+            "sku": p.sku,
+            "name": p.name,
+            "cogs_unit": costs.unit_cost(p.id, today),
+        }
         for p in rows
     ]
 

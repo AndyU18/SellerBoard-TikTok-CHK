@@ -39,8 +39,12 @@ async def _upload(client, path, name, data):
 
 
 async def _setup(client):
-    assert (await _upload(client, "/api/import/orders", "o.csv", ORDERS)).status_code == 200
-    assert (await _upload(client, "/api/import/ad-spend", "a.csv", ADS)).status_code == 200
+    assert (
+        await _upload(client, "/api/import/orders", "o.csv", ORDERS)
+    ).status_code == 200
+    assert (
+        await _upload(client, "/api/import/ad-spend", "a.csv", ADS)
+    ).status_code == 200
     for p in (await client.get("/api/products")).json():
         r = await client.put(f"/api/products/{p['id']}/cogs", json={"cogs_unit": 20})
         assert r.status_code == 200
@@ -103,7 +107,9 @@ async def test_timeseries_by_month(client):
 async def test_totals_match_sum_of_rows(client):
     await _setup(client)
     data = (await client.get("/api/profit?group_by=channel")).json()
-    assert data["totals"]["net_profit"] == pytest.approx(sum(r["net_profit"] for r in data["rows"]))
+    assert data["totals"]["net_profit"] == pytest.approx(
+        sum(r["net_profit"] for r in data["rows"])
+    )
 
 
 @pytest.mark.asyncio
@@ -131,7 +137,9 @@ async def test_bulk_cogs_import_updates_creates_and_validates(client):
     csv = f"sku,cost\n{sku},$12.50\nNEW-1,3\n".encode()
     r = await _upload(client, "/api/import/cogs", "c.csv", csv)
     assert r.status_code == 200 and r.json()["products_created"] == 1
-    costs = {p["sku"]: p["cogs_unit"] for p in (await client.get("/api/products")).json()}
+    costs = {
+        p["sku"]: p["cogs_unit"] for p in (await client.get("/api/products")).json()
+    }
     assert costs[sku] == 12.5 and costs["NEW-1"] == 3
     bad = await _upload(client, "/api/import/cogs", "c.csv", b"sku,cost\nA,-1\n")
     assert bad.status_code == 422

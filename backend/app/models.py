@@ -79,7 +79,10 @@ class ChannelListing(Base):
     """SKU/ID del producto en una cuenta concreta (ASIN, ID TikTok Shop, ID Walmart)."""
 
     __tablename__ = "channel_listing"
-    __table_args__ = (UniqueConstraint("account_id", "channel_sku"), {"schema": "catalog"})
+    __table_args__ = (
+        UniqueConstraint("account_id", "channel_sku"),
+        {"schema": "catalog"},
+    )
 
     id: Mapped[int] = mapped_column(BigId, primary_key=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("catalog.product.id"))
@@ -109,7 +112,9 @@ class ProductCostHistory(Base):
 
     id: Mapped[int] = mapped_column(BigId, primary_key=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("catalog.product.id"))
-    component_type_id: Mapped[int] = mapped_column(ForeignKey("catalog.cost_component_type.id"))
+    component_type_id: Mapped[int] = mapped_column(
+        ForeignKey("catalog.cost_component_type.id")
+    )
     amount: Mapped[Decimal] = mapped_column(Money)
     valid_from: Mapped[date] = mapped_column(Date)
 
@@ -118,7 +123,10 @@ class SalesOrder(Base):
     """Cabecera de la orden. Una orden tiene una línea por producto."""
 
     __tablename__ = "sales_order"
-    __table_args__ = (UniqueConstraint("account_id", "external_order_id"), {"schema": "sales"})
+    __table_args__ = (
+        UniqueConstraint("account_id", "external_order_id"),
+        {"schema": "sales"},
+    )
 
     id: Mapped[int] = mapped_column(BigId, primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("sales.account.id"))

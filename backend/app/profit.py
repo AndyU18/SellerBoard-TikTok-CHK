@@ -50,7 +50,9 @@ def add_line_profit(df: pl.DataFrame) -> pl.DataFrame:
     _check_columns(df)
     if "allocated_expenses" not in df.columns:
         df = df.with_columns(pl.lit(0.0).alias("allocated_expenses"))
-    return df.with_columns((pl.col("units") * pl.col("cogs_unit")).alias("cogs")).with_columns(
+    return df.with_columns(
+        (pl.col("units") * pl.col("cogs_unit")).alias("cogs")
+    ).with_columns(
         (
             pl.col("gross_sales")
             - pl.col("promo")
