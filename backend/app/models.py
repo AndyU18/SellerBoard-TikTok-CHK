@@ -43,6 +43,7 @@ class Channel(str, enum.Enum):
     amazon = "amazon"
     tiktok_shop = "tiktok_shop"
     walmart = "walmart"
+    shopify = "shopify"
 
 
 class ChannelRow(Base):

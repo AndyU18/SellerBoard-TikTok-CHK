@@ -136,7 +136,7 @@ export function Import() {
       <h1 className="text-2xl font-semibold">Importar</h1>
       <p className="text-muted-foreground max-w-2xl text-sm">
         Sube reportes en CSV o Excel. Volver a subir el mismo archivo actualiza los datos sin duplicarlos.
-        Los canales válidos son amazon, tiktok_shop y walmart.
+        Los canales válidos son amazon, tiktok_shop, walmart y shopify.
       </p>
       <div className="grid gap-4 lg:grid-cols-2">
         <Uploader

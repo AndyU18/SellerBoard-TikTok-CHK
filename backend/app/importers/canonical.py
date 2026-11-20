@@ -88,6 +88,10 @@ CHANNEL_MAP = {
     "tiktok ads": "tiktok_shop",
     "walmart": "walmart",
     "walmart.com": "walmart",
+    "shopify": "shopify",
+    "shopify.com": "shopify",
+    "web": "shopify",
+    "tienda": "shopify",
 }
 
 

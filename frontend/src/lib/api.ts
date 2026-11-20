@@ -1,18 +1,20 @@
 import { supabase } from '@/lib/supabase'
 
-export type Channel = 'amazon' | 'tiktok_shop' | 'walmart'
+export type Channel = 'amazon' | 'tiktok_shop' | 'walmart' | 'shopify'
 export type GroupBy = 'channel' | 'product' | 'channel_product' | 'account'
 
-export const CHANNELS: Channel[] = ['amazon', 'tiktok_shop', 'walmart']
+export const CHANNELS: Channel[] = ['amazon', 'tiktok_shop', 'walmart', 'shopify']
 export const CHANNEL_LABEL: Record<Channel, string> = {
   amazon: 'Amazon',
   tiktok_shop: 'TikTok Shop',
   walmart: 'Walmart',
+  shopify: 'Shopify',
 }
 export const CHANNEL_COLOR: Record<Channel, string> = {
   amazon: '#ff9900',
   tiktok_shop: '#fe2c55',
   walmart: '#0071ce',
+  shopify: '#5e8e3e',
 }
 
 export interface ProfitRow {
