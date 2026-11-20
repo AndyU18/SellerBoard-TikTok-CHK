@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import router
 from app.config import settings
 from app.db import init_db
+from app.users_api import router as users_router
 
 
 @asynccontextmanager
@@ -23,3 +24,4 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(router)
+app.include_router(users_router)

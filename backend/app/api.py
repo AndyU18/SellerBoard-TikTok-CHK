@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import require
 from app.config import settings
 from app.connectors.tiktok_shop import TikTokShopClient, TikTokShopError
 from app.connectors.tiktok_shop_sync import sync_tiktok_shop
@@ -77,7 +78,7 @@ async def _normalized(
         ) from exc
 
 
-@router.post("/import/orders")
+@router.post("/import/orders", dependencies=[Depends(require("import.run", writes=True))])
 async def upload_orders(session: SessionDep, file: UploadFile) -> dict:
     df = await _normalized(file, normalize_orders)
     result = await import_orders(session, df)
@@ -92,7 +93,7 @@ async def upload_orders(session: SessionDep, file: UploadFile) -> dict:
     return _public(result)
 
 
-@router.post("/import/ad-spend")
+@router.post("/import/ad-spend", dependencies=[Depends(require("import.run", writes=True))])
 async def upload_ad_spend(session: SessionDep, file: UploadFile) -> dict:
     df = await _normalized(file, normalize_ad_spend)
     result = await import_ad_spend(session, df)
@@ -101,7 +102,7 @@ async def upload_ad_spend(session: SessionDep, file: UploadFile) -> dict:
     return _public(result)
 
 
-@router.post("/import/cogs")
+@router.post("/import/cogs", dependencies=[Depends(require("costs.edit", writes=True))])
 async def upload_cogs(session: SessionDep, file: UploadFile) -> dict:
     df = await _normalized(file, normalize_cogs)
     result = await import_cogs(session, df)
@@ -112,7 +113,7 @@ async def upload_cogs(session: SessionDep, file: UploadFile) -> dict:
     return _public(result)
 
 
-@router.post("/sync/tiktok-shop")
+@router.post("/sync/tiktok-shop", dependencies=[Depends(require("sync.run", writes=True))])
 async def sync_tiktok(
     session: SessionDep, days: Annotated[int, Query(ge=1, le=365)] = 30
 ) -> dict:
@@ -135,7 +136,7 @@ async def sync_tiktok(
     }
 
 
-@router.get("/profit")
+@router.get("/profit", dependencies=[Depends(require("profit.view"))])
 async def profit(
     session: SessionDep,
     group_by: GroupBy = "channel",
@@ -154,7 +155,7 @@ async def profit(
     return {"group_by": group_by, "rows": rows.to_dicts(), "totals": overall(df)}
 
 
-@router.post("/gold/refresh")
+@router.post("/gold/refresh", dependencies=[Depends(require("sync.run", writes=True))])
 async def gold_refresh(
     session: SessionDep, start: date | None = None, end: date | None = None
 ) -> dict:
@@ -164,7 +165,7 @@ async def gold_refresh(
     return {"rows_written": rows}
 
 
-@router.get("/gold/status")
+@router.get("/gold/status", dependencies=[Depends(require("ops.view"))])
 async def gold_status(session: SessionDep) -> dict:
     last = await session.scalar(
         select(GoldRefreshLog).order_by(GoldRefreshLog.id.desc()).limit(1)
@@ -182,7 +183,7 @@ async def gold_status(session: SessionDep) -> dict:
     }
 
 
-@router.get("/profit/timeseries")
+@router.get("/profit/timeseries", dependencies=[Depends(require("profit.view"))])
 async def profit_timeseries(
     session: SessionDep,
     interval: Literal["day", "month"] = "month",
@@ -202,7 +203,7 @@ async def profit_timeseries(
     }
 
 
-@router.get("/accounts")
+@router.get("/accounts", dependencies=[Depends(require("sales.view"))])
 async def list_accounts(session: SessionDep) -> list[dict]:
     rows = (
         await session.scalars(
@@ -212,7 +213,7 @@ async def list_accounts(session: SessionDep) -> list[dict]:
     return [{"id": a.id, "channel": a.channel_code, "name": a.name} for a in rows]
 
 
-@router.get("/products")
+@router.get("/products", dependencies=[Depends(require("catalog.view"))])
 async def list_products(session: SessionDep) -> list[dict]:
     """Productos con su costo unitario vigente hoy."""
     rows = (await session.scalars(select(Product).order_by(Product.sku))).all()
@@ -229,7 +230,7 @@ async def list_products(session: SessionDep) -> list[dict]:
     ]
 
 
-@router.put("/products/{product_id}/cogs")
+@router.put("/products/{product_id}/cogs", dependencies=[Depends(require("costs.edit", writes=True))])
 async def update_cogs(product_id: int, body: CogsUpdate, session: SessionDep) -> dict:
     product = await session.get(Product, product_id)
     if product is None:

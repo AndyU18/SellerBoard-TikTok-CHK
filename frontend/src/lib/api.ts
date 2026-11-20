@@ -1,3 +1,5 @@
+import { supabase } from '@/lib/supabase'
+
 export type Channel = 'amazon' | 'tiktok_shop' | 'walmart'
 export type GroupBy = 'channel' | 'product' | 'channel_product' | 'account'
 
@@ -69,6 +71,17 @@ export class ApiError extends Error {
   }
 }
 
+
+/** fetch con el token de la sesión de Supabase. Si el backend responde 401, cierra la sesión. */
+async function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const { data } = await supabase.auth.getSession()
+  const headers = new Headers(init.headers)
+  if (data.session) headers.set('Authorization', `Bearer ${data.session.access_token}`)
+  const res = await fetch(input, { ...init, headers })
+  if (res.status === 401) await supabase.auth.signOut()
+  return res
+}
+
 function query(params: Record<string, string | undefined>): string {
   const q = new URLSearchParams()
   for (const [k, v] of Object.entries(params)) if (v) q.set(k, v)
@@ -93,16 +106,16 @@ async function parse<T>(res: Response): Promise<T> {
 
 export const api = {
   profit: (groupBy: GroupBy, f: Filters) =>
-    fetch(`/api/profit${query({ group_by: groupBy, start: f.start, end: f.end, channel: f.channel })}`).then(
+    authFetch(`/api/profit${query({ group_by: groupBy, start: f.start, end: f.end, channel: f.channel })}`).then(
       (r) => parse<ProfitResponse>(r),
     ),
   timeseries: (interval: 'day' | 'month', f: Filters) =>
-    fetch(
+    authFetch(
       `/api/profit/timeseries${query({ interval, start: f.start, end: f.end, channel: f.channel })}`,
     ).then((r) => parse<{ interval: string; rows: ProfitRow[] }>(r)),
-  products: () => fetch('/api/products').then((r) => parse<Product[]>(r)),
+  products: () => authFetch('/api/products').then((r) => parse<Product[]>(r)),
   updateCogs: (id: number, cogs_unit: number) =>
-    fetch(`/api/products/${id}/cogs`, {
+    authFetch(`/api/products/${id}/cogs`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ cogs_unit }),
@@ -110,10 +123,10 @@ export const api = {
   upload: (kind: 'orders' | 'ad-spend' | 'cogs', file: File) => {
     const body = new FormData()
     body.append('file', file)
-    return fetch(`/api/import/${kind}`, { method: 'POST', body }).then((r) => parse<ImportResult>(r))
+    return authFetch(`/api/import/${kind}`, { method: 'POST', body }).then((r) => parse<ImportResult>(r))
   },
   syncTikTok: (days: number) =>
-    fetch(`/api/sync/tiktok-shop?days=${days}`, { method: 'POST' }).then((r) =>
+    authFetch(`/api/sync/tiktok-shop?days=${days}`, { method: 'POST' }).then((r) =>
       parse<{ days: number; stats: Record<string, number>; imported: ImportResult }>(r),
     ),
 }

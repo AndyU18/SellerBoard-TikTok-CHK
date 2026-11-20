@@ -9,6 +9,7 @@ las tablas a partir de estos modelos. Costos SIEMPRE positivos.
 from __future__ import annotations
 
 import enum
+import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -22,6 +23,7 @@ from sqlalchemy import (
     Numeric,
     String,
     UniqueConstraint,
+    Uuid,
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -219,3 +221,52 @@ class GoldRefreshLog(Base):
     date_to: Mapped[date] = mapped_column(Date)
     rows_written: Mapped[int] = mapped_column(default=0)
     reason: Mapped[str | None] = mapped_column(String)
+
+
+# ---------------------------------------------------------------- esquema app (usuarios y permisos)
+class Profile(Base):
+    """Perfil de un usuario de Supabase Auth (lo crea un trigger al registrarse)."""
+
+    __tablename__ = "profile"
+    __table_args__ = ({"schema": "app"},)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    email: Mapped[str | None] = mapped_column(String)
+    full_name: Mapped[str | None] = mapped_column(String)
+    is_active: Mapped[bool] = mapped_column(default=True)
+
+
+class Role(Base):
+    __tablename__ = "role"
+    __table_args__ = ({"schema": "app"},)
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    code: Mapped[str] = mapped_column(String, unique=True)
+    name: Mapped[str] = mapped_column(String)
+
+
+class Permission(Base):
+    __tablename__ = "permission"
+    __table_args__ = ({"schema": "app"},)
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    code: Mapped[str] = mapped_column(String, unique=True)
+
+
+class RolePermission(Base):
+    __tablename__ = "role_permission"
+    __table_args__ = ({"schema": "app"},)
+
+    role_id: Mapped[int] = mapped_column(ForeignKey("app.role.id"), primary_key=True)
+    permission_id: Mapped[int] = mapped_column(ForeignKey("app.permission.id"), primary_key=True)
+
+
+class UserRole(Base):
+    __tablename__ = "user_role"
+    __table_args__ = ({"schema": "app"},)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("app.profile.user_id"), primary_key=True
+    )
+    role_id: Mapped[int] = mapped_column(ForeignKey("app.role.id"), primary_key=True)
+    assigned_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
