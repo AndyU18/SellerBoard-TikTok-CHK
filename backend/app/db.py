@@ -29,8 +29,11 @@ def make_engine(url: str) -> AsyncEngine:
         connect_args={"statement_cache_size": 0},
         pool_size=5,
         max_overflow=5,
-        pool_recycle=1800,
-        pool_pre_ping=True,
+        # Medido contra Supabase (Ohio): pool_pre_ping cuesta un viaje de red por petición
+        # (~135 ms) y duplicaba la latencia. En su lugar se reciclan las conexiones pronto,
+        # sin costo de red, para no usar una que el pooler ya cerró por inactividad.
+        pool_recycle=240,
+        pool_pre_ping=False,
     )
 
 

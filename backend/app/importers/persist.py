@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 
 import polars as pl
@@ -33,6 +34,10 @@ class ImportResult:
     updated: int = 0
     accounts_created: int = 0
     products_created: int = 0
+    # Rango de fechas tocado (incluye las fechas ANTERIORES de órdenes que cambiaron de día);
+    # lo usa la API para refrescar la capa oro. No se devuelve al cliente.
+    touched_from: date | None = None
+    touched_to: date | None = None
 
 
 def _dec(value: float) -> Decimal:
@@ -114,13 +119,17 @@ class _Resolver:
 
 async def _load_orders(
     session: AsyncSession, prepared: list[tuple[Account, int, dict]]
-) -> dict[tuple[int, str], SalesOrder]:
-    """Trae las cabeceras existentes en lote y crea (en un solo flush) las que falten."""
+) -> tuple[dict[tuple[int, str], SalesOrder], list[date]]:
+    """Trae las cabeceras existentes en lote y crea (en un solo flush) las que falten.
+
+    Devuelve también las fechas anteriores de las órdenes que cambian de día.
+    """
     wanted: dict[int, dict[str, object]] = {}
     for account, _, row in prepared:
         wanted.setdefault(account.id, {}).setdefault(row["order_id"], row["date"])
 
     orders: dict[tuple[int, str], SalesOrder] = {}
+    old_dates: list[date] = []
     for account_id, by_external in wanted.items():
         for part in _chunks(list(by_external)):
             found = await session.scalars(
@@ -130,6 +139,7 @@ async def _load_orders(
                 )
             )
             for order in found:
+                old_dates.append(order.order_date)
                 order.order_date = by_external[order.external_order_id]
                 orders[(account_id, order.external_order_id)] = order
         for external_id, day in by_external.items():
@@ -140,7 +150,7 @@ async def _load_orders(
                 session.add(order)
                 orders[(account_id, external_id)] = order
     await session.flush()
-    return orders
+    return orders, old_dates
 
 
 async def import_cogs(session: AsyncSession, df: pl.DataFrame) -> ImportResult:
@@ -210,7 +220,7 @@ async def import_orders(session: AsyncSession, df: pl.DataFrame) -> ImportResult
         prepared.append((account, product_id, row))
     await session.flush()  # listings y productos nuevos
 
-    orders = await _load_orders(session, prepared)
+    orders, old_dates = await _load_orders(session, prepared)
     existing_lines: dict[tuple[int, int], OrderLine] = {}
     order_ids = [o.id for o in orders.values()]
     for part in _chunks(order_ids):
@@ -247,6 +257,9 @@ async def import_orders(session: AsyncSession, df: pl.DataFrame) -> ImportResult
                 setattr(existing, k, v)
             result.updated += 1
 
+    touched = [*old_dates, *lines["date"].to_list()]
+    if touched:
+        result.touched_from, result.touched_to = min(touched), max(touched)
     await session.flush()
     return result
 

@@ -40,19 +40,21 @@ _MONEY_COLUMNS = [
 
 
 def _check_columns(df: pl.DataFrame) -> None:
-    missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
+    # Si el DataFrame ya trae `cogs` (capa oro), no hace falta `cogs_unit`.
+    required = [c for c in REQUIRED_COLUMNS if not (c == "cogs_unit" and "cogs" in df.columns)]
+    missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"Faltan columnas: {missing}")
 
 
 def add_line_profit(df: pl.DataFrame) -> pl.DataFrame:
-    """Calcula cogs y utilidad neta por línea (sin gastos indirectos)."""
+    """Calcula cogs (si no viene) y utilidad neta por línea."""
     _check_columns(df)
     if "allocated_expenses" not in df.columns:
         df = df.with_columns(pl.lit(0.0).alias("allocated_expenses"))
+    if "cogs" not in df.columns:
+        df = df.with_columns((pl.col("units") * pl.col("cogs_unit")).alias("cogs"))
     return df.with_columns(
-        (pl.col("units") * pl.col("cogs_unit")).alias("cogs")
-    ).with_columns(
         (
             pl.col("gross_sales")
             - pl.col("promo")

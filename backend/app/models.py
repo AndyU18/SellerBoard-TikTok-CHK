@@ -9,17 +9,20 @@ las tablas a partir de estos modelos. Costos SIEMPRE positivos.
 from __future__ import annotations
 
 import enum
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger,
+    Computed,
     Date,
+    DateTime,
     ForeignKey,
     Integer,
     Numeric,
     String,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -166,3 +169,53 @@ class AdSpendDaily(Base):
     product_id: Mapped[int | None] = mapped_column(ForeignKey("catalog.product.id"))
     spend_date: Mapped[date] = mapped_column(Date, index=True)
     spend: Mapped[Decimal] = mapped_column(Money)
+
+
+class GoldDailyProfit(Base):
+    """Capa oro: utilidad por día, cuenta y producto. El dashboard lee SOLO de aquí.
+
+    net_profit es una columna generada por la base (misma fórmula que profit.py), así la tabla
+    nunca queda inconsistente. product_id nulo = publicidad sin SKU asignado.
+    """
+
+    __tablename__ = "daily_profit"
+    __table_args__ = ({"schema": "gold"},)
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    profit_date: Mapped[date] = mapped_column(Date, index=True)
+    channel_code: Mapped[str] = mapped_column(ForeignKey("sales.channel.code"))
+    account_id: Mapped[int] = mapped_column(ForeignKey("sales.account.id"))
+    product_id: Mapped[int | None] = mapped_column(ForeignKey("catalog.product.id"))
+    orders: Mapped[int] = mapped_column(default=0)
+    units: Mapped[int] = mapped_column(default=0)
+    gross_sales: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    promo: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    platform_fees: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    shipping_cost: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    refund_amount: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    ad_spend: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    cogs: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    allocated_expenses: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    net_profit: Mapped[Decimal] = mapped_column(
+        Money,
+        Computed(
+            "gross_sales - promo - platform_fees - shipping_cost - refund_amount"
+            " - ad_spend - cogs - allocated_expenses",
+            persisted=True,
+        ),
+    )
+    refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class GoldRefreshLog(Base):
+    """Bitácora de refrescos de la capa oro."""
+
+    __tablename__ = "refresh_log"
+    __table_args__ = ({"schema": "gold"},)
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    date_from: Mapped[date] = mapped_column(Date)
+    date_to: Mapped[date] = mapped_column(Date)
+    rows_written: Mapped[int] = mapped_column(default=0)
+    reason: Mapped[str | None] = mapped_column(String)
