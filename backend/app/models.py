@@ -270,3 +270,18 @@ class UserRole(Base):
     )
     role_id: Mapped[int] = mapped_column(ForeignKey("app.role.id"), primary_key=True)
     assigned_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+
+
+class ShippingLabelCost(Base):
+    """Costo de etiquetas por orden (Redo...). Ver supabase/migrations/..._shipping_label_cost.sql."""
+
+    __tablename__ = "shipping_label_cost"
+    __table_args__ = (UniqueConstraint("source", "external_order_id"), {"schema": "sales"})
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    source: Mapped[str] = mapped_column(String)
+    external_order_id: Mapped[str] = mapped_column(String, index=True)
+    amount: Mapped[Decimal] = mapped_column(Money)
+    charges: Mapped[int] = mapped_column(default=1)
+    first_charged: Mapped[date | None] = mapped_column(Date)
+    last_charged: Mapped[date | None] = mapped_column(Date)

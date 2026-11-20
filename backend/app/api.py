@@ -29,6 +29,7 @@ from app.importers.canonical import (
     read_table,
 )
 from app.importers.persist import import_ad_spend, import_cogs, import_orders
+from app.importers.redo import import_label_costs, normalize_redo
 from app.models import Account, Channel, GoldRefreshLog, Product
 from app.profit import overall, summarize
 
@@ -78,6 +79,19 @@ async def _normalized(
         ) from exc
 
 
+async def _normalized_with_stats(file: UploadFile, normalize):
+    """Como _normalized, para normalizadores que devuelven (DataFrame, estadísticas)."""
+    data = await file.read()
+    if len(data) > settings.max_upload_bytes:
+        raise HTTPException(413, "Archivo demasiado grande")
+    try:
+        return normalize(read_table(data, file.filename or ""))
+    except ImportValidationError as exc:
+        raise HTTPException(422, {"problems": exc.problems}) from exc
+    except pl.exceptions.PolarsError as exc:
+        raise HTTPException(422, {"problems": [f"No se pudo leer el archivo: {exc}"]}) from exc
+
+
 @router.post("/import/orders", dependencies=[Depends(require("import.run", writes=True))])
 async def upload_orders(session: SessionDep, file: UploadFile) -> dict:
     df = await _normalized(file, normalize_orders)
@@ -111,6 +125,20 @@ async def upload_cogs(session: SessionDep, file: UploadFile) -> dict:
     await refresh_daily_profit(session, start, None, reason="import_cogs")
     await session.commit()
     return _public(result)
+
+
+@router.post("/import/shipping-labels", dependencies=[Depends(require("import.run", writes=True))])
+async def upload_shipping_labels(session: SessionDep, file: UploadFile) -> dict:
+    """Reporte billing-transactions de Redo: costo real de las etiquetas por orden."""
+    df, stats = await _normalized_with_stats(file, normalize_redo)
+    result = await import_label_costs(session, df)
+    if result.touched_from:
+        await refresh_daily_profit(
+            session, result.touched_from, result.touched_to, reason="import_shipping_labels"
+        )
+    await session.commit()
+    out = _public(result)
+    return {**out, "stats": asdict(stats)}
 
 
 @router.post("/sync/tiktok-shop", dependencies=[Depends(require("sync.run", writes=True))])

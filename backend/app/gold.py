@@ -28,6 +28,8 @@ from app.models import (
     GoldRefreshLog,
     OrderLine,
     Product,
+    SalesOrder,
+    ShippingLabelCost,
 )
 
 UNASSIGNED_SKU = "(sin asignar)"
@@ -63,20 +65,36 @@ GOLD_FRAME_SCHEMA: dict[str, pl.DataType] = {
 }
 
 
+async def _label_costs(session: AsyncSession) -> dict[str, float]:
+    """Costo de etiquetas por id de orden externo (suma de todas las fuentes)."""
+    totals: dict[str, float] = {}
+    for ext_id, amount in (
+        await session.execute(select(ShippingLabelCost.external_order_id, ShippingLabelCost.amount))
+    ).all():
+        totals[ext_id] = totals.get(ext_id, 0.0) + float(amount)
+    return totals
+
+
 async def _silver_daily(session: AsyncSession, start: date | None, end: date | None) -> pl.DataFrame:
     """Agrega la capa plata por (día, canal, cuenta, producto)."""
-    order_q = select(
-        OrderLine.order_date,
-        Account.channel_code,
-        OrderLine.account_id,
-        OrderLine.product_id,
-        OrderLine.units,
-        OrderLine.gross_sales,
-        OrderLine.promo,
-        OrderLine.platform_fees,
-        OrderLine.shipping_cost,
-        OrderLine.refund_amount,
-    ).join(Account, OrderLine.account_id == Account.id)
+    order_q = (
+        select(
+            OrderLine.order_date,
+            Account.channel_code,
+            OrderLine.account_id,
+            OrderLine.product_id,
+            OrderLine.units,
+            OrderLine.gross_sales,
+            OrderLine.promo,
+            OrderLine.platform_fees,
+            OrderLine.shipping_cost,
+            OrderLine.refund_amount,
+            SalesOrder.external_order_id,
+            OrderLine.order_id,
+        )
+        .join(Account, OrderLine.account_id == Account.id)
+        .join(SalesOrder, OrderLine.order_id == SalesOrder.id)
+    )
     ad_q = select(
         AdSpendDaily.spend_date,
         Account.channel_code,
@@ -92,11 +110,25 @@ async def _silver_daily(session: AsyncSession, start: date | None, end: date | N
         ad_q = ad_q.where(AdSpendDaily.spend_date <= end)
 
     costs = await load_cost_history(session)
+    labels = await _label_costs(session)
     zeros = dict.fromkeys(MONEY, 0.0)
+    fetched = (await session.execute(order_q)).all()
+
+    # El costo de etiqueta es de la ORDEN: se reparte entre sus líneas según sus ventas
+    # (o sus unidades si no hubo ventas). El resto del envío ya viene por línea.
+    order_gross: dict[int, float] = {}
+    order_units: dict[int, int] = {}
+    for row in fetched:
+        order_gross[row[11]] = order_gross.get(row[11], 0.0) + float(row[5])
+        order_units[row[11]] = order_units.get(row[11], 0) + row[4]
+
     rows: list[dict] = []
-    for day, ch, acc, pid, units, gross, promo, fees, ship, refund in (
-        await session.execute(order_q)
-    ).all():
+    for day, ch, acc, pid, units, gross, promo, fees, ship, refund, ext_id, order_id in fetched:
+        label = labels.get(ext_id, 0.0)
+        if label:
+            total = order_gross[order_id]
+            share = float(gross) / total if total else units / (order_units[order_id] or 1)
+            label *= share
         rows.append(
             {
                 "profit_date": day,
@@ -109,7 +141,7 @@ async def _silver_daily(session: AsyncSession, start: date | None, end: date | N
                 "gross_sales": float(gross),
                 "promo": float(promo),
                 "platform_fees": float(fees),
-                "shipping_cost": float(ship),
+                "shipping_cost": float(ship) + label,
                 "refund_amount": float(refund),
                 "cogs": units * costs.unit_cost(pid, day),
             }

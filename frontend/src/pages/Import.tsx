@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { api, ApiError, type ImportResult } from '@/lib/api'
 
 interface UploaderProps {
-  kind: 'orders' | 'ad-spend' | 'cogs'
+  kind: 'orders' | 'ad-spend' | 'cogs' | 'shipping-labels'
   title: string
   description: string
   columns: string
@@ -60,6 +60,15 @@ function Uploader({ kind, title, description, columns }: UploaderProps) {
             Listo: {result.inserted} nuevas, {result.updated} actualizadas
             {result.accounts_created > 0 && `, ${result.accounts_created} cuentas creadas`}
             {result.products_created > 0 && `, ${result.products_created} productos creados`}.
+            {result.matched_orders !== undefined && (
+              <>
+                {' '}
+                {result.matched_orders} órdenes cruzadas con tus ventas; {result.unmatched_orders} aún sin orden en la
+                base (no sincronizadas o de otro canal).
+                {result.stats && result.stats.unassigned_charges > 0 &&
+                  ` ${result.stats.unassigned_charges} cargos sin orden ($${result.stats.unassigned_total}) no se atribuyen a un producto.`}
+              </>
+            )}
           </p>
         )}
         {problems.length > 0 && (
@@ -147,6 +156,12 @@ export function Import() {
           title="Costos (COGS)"
           description="Costo unitario por SKU. Actualiza los existentes y crea los que falten."
           columns="sku, cogs_unit (o cost), product_name (opcional)"
+        />
+        <Uploader
+          kind="shipping-labels"
+          title="Etiquetas de envío (Redo)"
+          description="Costo real de cada etiqueta, cruzado por número de orden y repartido entre los productos de la orden."
+          columns="billing-transactions.csv de Redo: Created at, Type, Category, Order, Amount"
         />
         <TikTokSync />
       </div>

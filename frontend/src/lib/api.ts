@@ -61,6 +61,10 @@ export interface ImportResult {
   updated: number
   accounts_created: number
   products_created: number
+  /** Solo en el reporte de etiquetas (Redo). */
+  matched_orders?: number
+  unmatched_orders?: number
+  stats?: { orders: number; transactions_excluded: number; unassigned_charges: number; unassigned_total: number }
 }
 
 export class ApiError extends Error {
@@ -120,7 +124,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ cogs_unit }),
     }).then((r) => parse<{ id: number; cogs_unit: number }>(r)),
-  upload: (kind: 'orders' | 'ad-spend' | 'cogs', file: File) => {
+  upload: (kind: 'orders' | 'ad-spend' | 'cogs' | 'shipping-labels', file: File) => {
     const body = new FormData()
     body.append('file', file)
     return authFetch(`/api/import/${kind}`, { method: 'POST', body }).then((r) => parse<ImportResult>(r))
