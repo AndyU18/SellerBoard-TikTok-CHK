@@ -131,6 +131,10 @@ export const api = {
     body.append('file', file)
     return authFetch(`/api/import/${kind}`, { method: 'POST', body }).then((r) => parse<ImportResult>(r))
   },
+  syncWalmart: (days: number) =>
+    authFetch(`/api/sync/walmart?days=${days}`, { method: 'POST' }).then((r) =>
+      parse<{ days: number; stats: Record<string, number>; imported: ImportResult }>(r),
+    ),
   syncTikTok: (days: number) =>
     authFetch(`/api/sync/tiktok-shop?days=${days}`, { method: 'POST' }).then((r) =>
       parse<{ days: number; stats: Record<string, number>; imported: ImportResult }>(r),

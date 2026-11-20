@@ -18,6 +18,7 @@ from app.auth import require
 from app.config import settings
 from app.connectors.tiktok_shop import TikTokShopClient, TikTokShopError
 from app.connectors.tiktok_shop_sync import sync_tiktok_shop
+from app.connectors.walmart import WalmartClient, WalmartError, sync_walmart
 from app.costs import load_cost_history, set_product_cost
 from app.db import get_session
 from app.gold import load_gold_frame, refresh_daily_profit
@@ -162,6 +163,25 @@ async def sync_tiktok(
         "stats": report.stats,
         "imported": _public(report.imported),
     }
+
+
+@router.post("/sync/walmart", dependencies=[Depends(require("sync.run", writes=True))])
+async def sync_walmart_orders(
+    session: SessionDep, days: Annotated[int, Query(ge=1, le=180)] = 30
+) -> dict:
+    """Trae órdenes de Walmart (solo lectura en Walmart) de los últimos `days` días."""
+    try:
+        report = await sync_walmart(session, WalmartClient(), days=days)
+    except WalmartError as exc:
+        raise HTTPException(502, {"problems": [str(exc)]}) from exc
+    await refresh_daily_profit(
+        session,
+        report.imported.touched_from or date.today() - timedelta(days=days + 1),
+        None,
+        reason="sync_walmart",
+    )
+    await session.commit()
+    return {"days": report.days, "stats": report.stats, "imported": _public(report.imported)}
 
 
 @router.get("/profit", dependencies=[Depends(require("profit.view"))])

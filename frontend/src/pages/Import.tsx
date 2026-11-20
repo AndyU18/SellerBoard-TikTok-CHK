@@ -130,6 +130,55 @@ function TikTokSync() {
   )
 }
 
+function WalmartSync() {
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+
+  async function run() {
+    setBusy(true)
+    setMessage('')
+    setError('')
+    try {
+      const r = await api.syncWalmart(30)
+      setMessage(
+        `Listo: ${r.stats.orders_seen} órdenes (${r.imported.inserted} nuevas, ${r.imported.updated} actualizadas). ` +
+          `Comisión real en ${r.stats.fees_actual} líneas; estimada al 15% en ${r.stats.fees_estimated} hasta que Walmart las liquide.`,
+      )
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Walmart</CardTitle>
+        <CardDescription>
+          Trae de la API las órdenes de los últimos 30 días y las liquidaciones (comisión real y etiquetas).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Button onClick={run} disabled={busy}>
+          {busy ? 'Sincronizando…' : 'Sincronizar ahora'}
+        </Button>
+        {message && (
+          <p role="status" className="text-sm text-green-700">
+            {message}
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="text-sm text-red-700">
+            {error}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function Import() {
   return (
     <div className="space-y-6">
@@ -164,6 +213,7 @@ export function Import() {
           columns="billing-transactions.csv de Redo: Created at, Type, Category, Order, Amount"
         />
         <TikTokSync />
+        <WalmartSync />
       </div>
     </div>
   )
