@@ -130,6 +130,58 @@ function TikTokSync() {
   )
 }
 
+function RedoSync() {
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+
+  async function run() {
+    setBusy(true)
+    setMessage('')
+    setError('')
+    try {
+      const r = await api.syncRedo()
+      setMessage(
+        `Listo: ${r.inserted} órdenes nuevas, ${r.updated} actualizadas. ${r.matched_orders} cruzadas con tus ventas; ` +
+          `${r.unmatched_orders} aún sin orden en la base.` +
+          (r.stats && r.stats.unassigned_charges > 0
+            ? ` ${r.stats.unassigned_charges} cargos sin orden ($${r.stats.unassigned_total}) no se atribuyen a un producto.`
+            : ''),
+      )
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Redo (etiquetas)</CardTitle>
+        <CardDescription>
+          Trae directo de Redo el costo real de cada etiqueta (solo lectura). Reemplaza subir el CSV.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Button onClick={run} disabled={busy}>
+          {busy ? 'Sincronizando…' : 'Sincronizar ahora'}
+        </Button>
+        {message && (
+          <p role="status" className="text-sm text-green-700">
+            {message}
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="text-sm text-red-700">
+            {error}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 function WalmartSync() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -214,6 +266,7 @@ export function Import() {
         />
         <TikTokSync />
         <WalmartSync />
+        <RedoSync />
       </div>
     </div>
   )

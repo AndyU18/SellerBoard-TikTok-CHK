@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import require
 from app.config import settings
+from app.connectors.redo import RedoClient, RedoError, sync_redo
 from app.connectors.tiktok_shop import TikTokShopClient, TikTokShopError
 from app.connectors.tiktok_shop_sync import sync_tiktok_shop
 from app.connectors.walmart import WalmartClient, WalmartError, sync_walmart
@@ -165,7 +166,20 @@ async def sync_tiktok(
     }
 
 
-@router.post("/sync/walmart", dependencies=[Depends(require("sync.run", writes=True))])
+@router.post("/sync/redo", dependencies=[Depends(require("sync.run", writes=True))])
+async def sync_redo_labels(session: SessionDep) -> dict:
+    """Trae de Redo (solo lectura) el costo real de las etiquetas, sin subir el CSV."""
+    try:
+        result, stats = await sync_redo(session, RedoClient())
+    except RedoError as exc:
+        raise HTTPException(502, {"problems": [str(exc)]}) from exc
+    if result.touched_from:
+        await refresh_daily_profit(session, result.touched_from, result.touched_to, reason="sync_redo")
+    await session.commit()
+    return {**_public(result), "stats": asdict(stats)}
+
+
+@router.post("/sync/walmart",dependencies=[Depends(require("sync.run", writes=True))])
 async def sync_walmart_orders(
     session: SessionDep, days: Annotated[int, Query(ge=1, le=180)] = 30
 ) -> dict:
