@@ -123,3 +123,18 @@ async def test_negative_cogs_rejected_and_unknown_product_404(client):
     assert bad.status_code == 422
     missing = await client.put("/api/products/9999/cogs", json={"cogs_unit": 1})
     assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_bulk_cogs_import_updates_creates_and_validates(client):
+    await _upload(client, "/api/import/orders", "o.csv", ORDERS)
+    sku = (await client.get("/api/products")).json()[0]["sku"]
+    csv = f"sku,cost\n{sku},$12.50\nNEW-1,3\n".encode()
+    r = await _upload(client, "/api/import/cogs", "c.csv", csv)
+    assert r.status_code == 200 and r.json()["products_created"] == 1
+    costs = {p["sku"]: p["cogs_unit"] for p in (await client.get("/api/products")).json()}
+    assert costs[sku] == 12.5 and costs["NEW-1"] == 3
+    bad = await _upload(client, "/api/import/cogs", "c.csv", b"sku,cost\nA,-1\n")
+    assert bad.status_code == 422
+    missing = await _upload(client, "/api/import/cogs", "c.csv", b"sku\nA\n")
+    assert missing.status_code == 422

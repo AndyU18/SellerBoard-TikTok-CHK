@@ -37,6 +37,12 @@ AD_ALIASES: dict[str, list[str]] = {
     "amount": ["amount", "spend", "ad spend", "ad_spend", "cost", "gasto", "monto"],
 }
 
+COGS_ALIASES: dict[str, list[str]] = {
+    "sku": ORDER_ALIASES["sku"],
+    "cogs_unit": ["cogs_unit", "cogs", "cost", "unit cost", "costo", "costo unitario", "cost per unit"],
+    "product_name": ORDER_ALIASES["product_name"],
+}
+
 CHANNEL_MAP = {
     "amazon": "amazon",
     "amazon.com": "amazon",
@@ -153,6 +159,27 @@ def normalize_orders(raw: pl.DataFrame) -> pl.DataFrame:
         },
     )
     return out
+
+
+def normalize_cogs(raw: pl.DataFrame) -> pl.DataFrame:
+    """Costo unitario por SKU. Si un SKU se repite, gana la última fila."""
+    df = _rename_to_canonical(raw, COGS_ALIASES)
+    _require(df, ["sku", "cogs_unit"])
+    if "product_name" not in df.columns:
+        df = df.with_columns(pl.lit(None, dtype=pl.Utf8).alias("product_name"))
+    out = df.select(
+        pl.col("sku").str.strip_chars().alias("sku"),
+        pl.col("product_name"),
+        _money("cogs_unit").alias("cogs_unit"),
+    )
+    _check_rows(
+        out,
+        {
+            "SKU vacío": pl.col("sku").is_null() | (pl.col("sku") == ""),
+            "Costo negativo": pl.col("cogs_unit") < 0,
+        },
+    )
+    return out.unique(subset="sku", keep="last", maintain_order=True)
 
 
 def normalize_ad_spend(raw: pl.DataFrame) -> pl.DataFrame:

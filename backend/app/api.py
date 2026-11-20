@@ -21,10 +21,11 @@ from app.db import get_session
 from app.importers.canonical import (
     ImportValidationError,
     normalize_ad_spend,
+    normalize_cogs,
     normalize_orders,
     read_table,
 )
-from app.importers.persist import import_ad_spend, import_orders
+from app.importers.persist import import_ad_spend, import_cogs, import_orders
 from app.models import Account, Channel, Product
 from app.profit import overall, summarize
 from app.queries import load_profit_frame
@@ -74,6 +75,14 @@ async def upload_orders(session: SessionDep, file: UploadFile) -> dict:
 async def upload_ad_spend(session: SessionDep, file: UploadFile) -> dict:
     df = await _normalized(file, normalize_ad_spend)
     result = await import_ad_spend(session, df)
+    await session.commit()
+    return asdict(result)
+
+
+@router.post("/import/cogs")
+async def upload_cogs(session: SessionDep, file: UploadFile) -> dict:
+    df = await _normalized(file, normalize_cogs)
+    result = await import_cogs(session, df)
     await session.commit()
     return asdict(result)
 

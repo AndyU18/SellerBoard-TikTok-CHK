@@ -107,9 +107,13 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ cogs_unit }),
     }).then((r) => parse<{ id: number; cogs_unit: number }>(r)),
-  upload: (kind: 'orders' | 'ad-spend', file: File) => {
+  upload: (kind: 'orders' | 'ad-spend' | 'cogs', file: File) => {
     const body = new FormData()
     body.append('file', file)
     return fetch(`/api/import/${kind}`, { method: 'POST', body }).then((r) => parse<ImportResult>(r))
   },
+  syncTikTok: (days: number) =>
+    fetch(`/api/sync/tiktok-shop?days=${days}`, { method: 'POST' }).then((r) =>
+      parse<{ days: number; stats: Record<string, number>; imported: ImportResult }>(r),
+    ),
 }

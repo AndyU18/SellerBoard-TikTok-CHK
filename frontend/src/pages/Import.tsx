@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { api, ApiError, type ImportResult } from '@/lib/api'
 
 interface UploaderProps {
-  kind: 'orders' | 'ad-spend'
+  kind: 'orders' | 'ad-spend' | 'cogs'
   title: string
   description: string
   columns: string
@@ -74,6 +74,53 @@ function Uploader({ kind, title, description, columns }: UploaderProps) {
   )
 }
 
+function TikTokSync() {
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+
+  async function run() {
+    setBusy(true)
+    setMessage('')
+    setError('')
+    try {
+      const r = await api.syncTikTok(30)
+      setMessage(
+        `Listo: ${r.stats.orders_settled} órdenes liquidadas (${r.imported.inserted} nuevas, ` +
+          `${r.imported.updated} actualizadas); ${r.stats.orders_pending_settlement} pendientes de liquidar.`,
+      )
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>TikTok Shop</CardTitle>
+        <CardDescription>Trae directo de la API las órdenes liquidadas de los últimos 30 días.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Button onClick={run} disabled={busy}>
+          {busy ? 'Sincronizando…' : 'Sincronizar ahora'}
+        </Button>
+        {message && (
+          <p role="status" className="text-sm text-green-700">
+            {message}
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="text-sm text-red-700">
+            {error}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function Import() {
   return (
     <div className="space-y-6">
@@ -95,6 +142,13 @@ export function Import() {
           description="Gasto diario de Amazon Ads, TikTok Ads o Walmart Connect."
           columns="date, channel, account, sku (opcional), spend"
         />
+        <Uploader
+          kind="cogs"
+          title="Costos (COGS)"
+          description="Costo unitario por SKU. Actualiza los existentes y crea los que falten."
+          columns="sku, cogs_unit (o cost), product_name (opcional)"
+        />
+        <TikTokSync />
       </div>
     </div>
   )

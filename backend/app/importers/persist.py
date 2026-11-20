@@ -80,6 +80,27 @@ class _Resolver:
         return pid
 
 
+async def import_cogs(session: AsyncSession, df: pl.DataFrame) -> ImportResult:
+    """`df` viene de `normalize_cogs`. Actualiza el costo; crea el producto si aún no existe."""
+    result = ImportResult()
+    existing = {p.sku: p for p in (await session.scalars(select(Product))).all()}
+    for row in df.iter_rows(named=True):
+        cost = Decimal(str(round(row["cogs_unit"], 4)))
+        product = existing.get(row["sku"])
+        if product is None:
+            session.add(Product(sku=row["sku"], name=row["product_name"], cogs_unit=cost))
+            result.products_created += 1
+            result.inserted += 1
+        else:
+            if product.cogs_unit != cost:
+                result.updated += 1
+            product.cogs_unit = cost
+            if row["product_name"] and not product.name:
+                product.name = row["product_name"]
+    await session.flush()
+    return result
+
+
 async def import_orders(session: AsyncSession, df: pl.DataFrame) -> ImportResult:
     """`df` debe venir de `normalize_orders`."""
     result = ImportResult()
