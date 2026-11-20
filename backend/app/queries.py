@@ -8,7 +8,8 @@ import polars as pl
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Account, AdSpend, Channel, OrderLine, Product
+from app.costs import load_cost_history
+from app.models import Account, AdSpendDaily, Channel, OrderLine, Product
 
 UNASSIGNED_SKU = "(sin asignar)"
 
@@ -40,37 +41,45 @@ async def load_profit_frame(
     """Órdenes + gasto publicitario como filas con las columnas que pide profit.py.
 
     El gasto publicitario entra como filas con 0 unidades, para que sume al
-    canal/producto correcto sin inventar ventas.
+    canal/producto correcto sin inventar ventas. El costo unitario de cada línea es el vigente
+    en la fecha de la orden (historial de costos).
     """
     order_q = (
-        select(OrderLine, Account.channel, Account.name, Product.sku, Product.name, Product.cogs_unit)
+        select(OrderLine, Account.channel_code, Account.name, Product.sku, Product.name)
         .join(Account, OrderLine.account_id == Account.id)
         .join(Product, OrderLine.product_id == Product.id)
     )
     ad_q = (
-        select(AdSpend.spend_date, Account.channel, Account.name, Product.sku, AdSpend.amount)
-        .join(Account, AdSpend.account_id == Account.id)
-        .outerjoin(Product, AdSpend.product_id == Product.id)
+        select(
+            AdSpendDaily.spend_date,
+            Account.channel_code,
+            Account.name,
+            Product.sku,
+            AdSpendDaily.spend,
+        )
+        .join(Account, AdSpendDaily.account_id == Account.id)
+        .outerjoin(Product, AdSpendDaily.product_id == Product.id)
     )
     if start:
         order_q = order_q.where(OrderLine.order_date >= start)
-        ad_q = ad_q.where(AdSpend.spend_date >= start)
+        ad_q = ad_q.where(AdSpendDaily.spend_date >= start)
     if end:
         order_q = order_q.where(OrderLine.order_date <= end)
-        ad_q = ad_q.where(AdSpend.spend_date <= end)
+        ad_q = ad_q.where(AdSpendDaily.spend_date <= end)
     if channel:
-        order_q = order_q.where(Account.channel == channel)
-        ad_q = ad_q.where(Account.channel == channel)
+        order_q = order_q.where(Account.channel_code == channel.value)
+        ad_q = ad_q.where(Account.channel_code == channel.value)
     if account:
         order_q = order_q.where(Account.name == account)
         ad_q = ad_q.where(Account.name == account)
 
+    costs = await load_cost_history(session)
     rows: list[dict] = []
-    for ol, ch, acc, sku, pname, cogs in (await session.execute(order_q)).all():
+    for ol, ch, acc, sku, pname in (await session.execute(order_q)).all():
         rows.append(
             {
                 "date": ol.order_date,
-                "channel": ch.value,
+                "channel": ch,
                 "account": acc,
                 "sku": sku,
                 "product_name": pname,
@@ -81,14 +90,14 @@ async def load_profit_frame(
                 "shipping_cost": float(ol.shipping_cost),
                 "refund_amount": float(ol.refund_amount),
                 "ad_spend": 0.0,
-                "cogs_unit": float(cogs),
+                "cogs_unit": costs.unit_cost(ol.product_id, ol.order_date),
             }
         )
     for spend_date, ch, acc, sku, amount in (await session.execute(ad_q)).all():
         rows.append(
             {
                 "date": spend_date,
-                "channel": ch.value,
+                "channel": ch,
                 "account": acc,
                 "sku": sku or UNASSIGNED_SKU,
                 "product_name": None,

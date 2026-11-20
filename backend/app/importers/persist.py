@@ -1,7 +1,9 @@
 """Guarda datos normalizados en la base de datos de forma idempotente.
 
-- Órdenes: clave única (cuenta, orden, producto). Reimportar actualiza, no duplica.
+- Órdenes: clave única (cuenta, orden) en la cabecera y (orden, producto) en la línea.
+  Reimportar actualiza, no duplica.
 - Publicidad: se reemplaza el rango de fechas de cada cuenta presente en el archivo.
+- Costos: cada cambio es una fila con vigencia en catalog.product_cost_history.
 """
 
 from __future__ import annotations
@@ -13,7 +15,15 @@ import polars as pl
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Account, AdSpend, Channel, ChannelListing, OrderLine, Product
+from app.costs import set_product_cost
+from app.models import (
+    Account,
+    AdSpendDaily,
+    ChannelListing,
+    OrderLine,
+    Product,
+    SalesOrder,
+)
 
 
 @dataclass
@@ -25,26 +35,27 @@ class ImportResult:
 
 
 def _dec(value: float) -> Decimal:
-    return Decimal(str(round(value, 2)))
+    return Decimal(str(round(value, 4)))
 
 
 class _Resolver:
-    """Resuelve cuentas y productos con caché, creándolos si no existen."""
+    """Resuelve cuentas, productos y cabeceras de orden con caché, creándolos si no existen."""
 
     def __init__(self, session: AsyncSession, result: ImportResult):
         self.session = session
         self.result = result
         self._accounts: dict[tuple[str, str], Account] = {}
         self._products: dict[tuple[int, str], int] = {}
+        self._orders: dict[tuple[int, str], SalesOrder] = {}
 
     async def account(self, channel: str, name: str) -> Account:
         key = (channel, name)
         if key not in self._accounts:
             acc = await self.session.scalar(
-                select(Account).where(Account.channel == Channel(channel), Account.name == name)
+                select(Account).where(Account.channel_code == channel, Account.name == name)
             )
             if acc is None:
-                acc = Account(channel=Channel(channel), name=name)
+                acc = Account(channel_code=channel, name=name)
                 self.session.add(acc)
                 await self.session.flush()
                 self.result.accounts_created += 1
@@ -79,24 +90,49 @@ class _Resolver:
         self._products[key] = pid
         return pid
 
+    async def order(self, account: Account, external_id: str, day) -> SalesOrder:
+        key = (account.id, external_id)
+        if key not in self._orders:
+            order = await self.session.scalar(
+                select(SalesOrder).where(
+                    SalesOrder.account_id == account.id,
+                    SalesOrder.external_order_id == external_id,
+                )
+            )
+            if order is None:
+                order = SalesOrder(
+                    account_id=account.id, external_order_id=external_id, order_date=day
+                )
+                self.session.add(order)
+                await self.session.flush()
+            else:
+                order.order_date = day
+            self._orders[key] = order
+        return self._orders[key]
+
 
 async def import_cogs(session: AsyncSession, df: pl.DataFrame) -> ImportResult:
-    """`df` viene de `normalize_cogs`. Actualiza el costo; crea el producto si aún no existe."""
+    """`df` viene de `normalize_cogs`. Fija el costo; crea el producto si aún no existe."""
     result = ImportResult()
-    existing = {p.sku: p for p in (await session.scalars(select(Product))).all()}
+    products = {p.sku: p for p in (await session.scalars(select(Product))).all()}
     for row in df.iter_rows(named=True):
-        cost = Decimal(str(round(row["cogs_unit"], 4)))
-        product = existing.get(row["sku"])
-        if product is None:
-            session.add(Product(sku=row["sku"], name=row["product_name"], cogs_unit=cost))
+        product = products.get(row["sku"])
+        created = product is None
+        if created:
+            product = Product(sku=row["sku"], name=row["product_name"])
+            session.add(product)
+            await session.flush()
+            products[row["sku"]] = product
             result.products_created += 1
+        elif row["product_name"] and not product.name:
+            product.name = row["product_name"]
+        changed = await set_product_cost(
+            session, product.id, _dec(row["cogs_unit"]), row.get("valid_from")
+        )
+        if created:
             result.inserted += 1
-        else:
-            if product.cogs_unit != cost:
-                result.updated += 1
-            product.cogs_unit = cost
-            if row["product_name"] and not product.name:
-                product.name = row["product_name"]
+        elif changed:
+            result.updated += 1
     await session.flush()
     return result
 
@@ -121,15 +157,15 @@ async def import_orders(session: AsyncSession, df: pl.DataFrame) -> ImportResult
     for row in lines.iter_rows(named=True):
         account = await resolver.account(row["channel"], row["account"])
         product_id = await resolver.product_id(account, row["sku"], row["product_name"])
+        order = await resolver.order(account, row["order_id"], row["date"])
         existing = await session.scalar(
             select(OrderLine).where(
-                OrderLine.account_id == account.id,
-                OrderLine.external_order_id == row["order_id"],
-                OrderLine.product_id == product_id,
+                OrderLine.order_id == order.id, OrderLine.product_id == product_id
             )
         )
         values = {
             "order_date": row["date"],
+            "channel_sku": row["sku"],
             "units": int(row["units"]),
             "gross_sales": _dec(row["gross_sales"]),
             "promo": _dec(row["promo"]),
@@ -140,10 +176,7 @@ async def import_orders(session: AsyncSession, df: pl.DataFrame) -> ImportResult
         if existing is None:
             session.add(
                 OrderLine(
-                    account_id=account.id,
-                    product_id=product_id,
-                    external_order_id=row["order_id"],
-                    **values,
+                    order_id=order.id, account_id=account.id, product_id=product_id, **values
                 )
             )
             result.inserted += 1
@@ -167,22 +200,26 @@ async def import_ad_spend(session: AsyncSession, df: pl.DataFrame) -> ImportResu
     for r in ranges.iter_rows(named=True):
         account = await resolver.account(r["channel"], r["account"])
         await session.execute(
-            delete(AdSpend).where(
-                AdSpend.account_id == account.id,
-                AdSpend.spend_date >= r["start"],
-                AdSpend.spend_date <= r["end"],
+            delete(AdSpendDaily).where(
+                AdSpendDaily.account_id == account.id,
+                AdSpendDaily.spend_date >= r["start"],
+                AdSpendDaily.spend_date <= r["end"],
             )
         )
 
-    for row in df.iter_rows(named=True):
+    # La tabla admite una fila por cuenta, día y SKU: las repetidas del archivo se suman.
+    daily = df.group_by(["channel", "account", "date", "sku"], maintain_order=True).agg(
+        pl.col("amount").sum()
+    )
+    for row in daily.iter_rows(named=True):
         account = await resolver.account(row["channel"], row["account"])
         product_id = await resolver.product_id(account, row["sku"], None) if row["sku"] else None
         session.add(
-            AdSpend(
+            AdSpendDaily(
                 account_id=account.id,
                 product_id=product_id,
                 spend_date=row["date"],
-                amount=_dec(row["amount"]),
+                spend=_dec(row["amount"]),
             )
         )
         result.inserted += 1

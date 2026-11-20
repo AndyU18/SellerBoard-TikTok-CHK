@@ -41,6 +41,7 @@ COGS_ALIASES: dict[str, list[str]] = {
     "sku": ORDER_ALIASES["sku"],
     "cogs_unit": ["cogs_unit", "cogs", "cost", "unit cost", "costo", "costo unitario", "cost per unit"],
     "product_name": ORDER_ALIASES["product_name"],
+    "valid_from": ["valid_from", "vigente desde", "effective date", "effective_date"],
 }
 
 CHANNEL_MAP = {
@@ -162,23 +163,33 @@ def normalize_orders(raw: pl.DataFrame) -> pl.DataFrame:
 
 
 def normalize_cogs(raw: pl.DataFrame) -> pl.DataFrame:
-    """Costo unitario por SKU. Si un SKU se repite, gana la última fila."""
+    """Costo unitario por SKU. Si un SKU se repite, gana la última fila.
+
+    `valid_from` (opcional) es la fecha desde la que rige el costo; vacía = ver set_product_cost.
+    """
     df = _rename_to_canonical(raw, COGS_ALIASES)
     _require(df, ["sku", "cogs_unit"])
     if "product_name" not in df.columns:
         df = df.with_columns(pl.lit(None, dtype=pl.Utf8).alias("product_name"))
+    if "valid_from" not in df.columns:
+        df = df.with_columns(pl.lit(None, dtype=pl.Utf8).alias("valid_from"))
+    raw_date = pl.col("valid_from").cast(pl.Utf8).str.strip_chars()
     out = df.select(
         pl.col("sku").str.strip_chars().alias("sku"),
         pl.col("product_name"),
         _money("cogs_unit").alias("cogs_unit"),
+        _date("valid_from").alias("valid_from"),
+        (raw_date.is_not_null() & (raw_date != "")).alias("_has_date"),
     )
     _check_rows(
         out,
         {
             "SKU vacío": pl.col("sku").is_null() | (pl.col("sku") == ""),
             "Costo negativo": pl.col("cogs_unit") < 0,
+            "Fecha de vigencia inválida": pl.col("_has_date") & pl.col("valid_from").is_null(),
         },
     )
+    out = out.drop("_has_date")
     return out.unique(subset="sku", keep="last", maintain_order=True)
 
 

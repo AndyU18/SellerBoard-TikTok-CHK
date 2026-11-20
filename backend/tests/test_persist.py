@@ -4,11 +4,12 @@ import polars as pl
 import pytest
 import pytest_asyncio
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.db import create_dev_schema, make_engine
 from app.importers.canonical import normalize_ad_spend, normalize_orders, read_table
 from app.importers.persist import import_ad_spend, import_orders
-from app.models import Account, AdSpend, Base, OrderLine, Product
+from app.models import Account, AdSpendDaily, OrderLine, Product, SalesOrder
 from app.profit import profit_by_channel
 
 ORDERS = (
@@ -21,9 +22,9 @@ ORDERS = (
 
 @pytest_asyncio.fixture
 async def session():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    engine = make_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(create_dev_schema)
     async with async_sessionmaker(engine, expire_on_commit=False)() as s:
         yield s
     await engine.dispose()
@@ -50,6 +51,7 @@ async def test_reimport_is_idempotent(session):
     again = await import_orders(session, df)
     assert again.inserted == 0 and again.updated == 3
     assert await _count(session, OrderLine) == 3
+    assert await _count(session, SalesOrder) == 3  # una cabecera por cuenta+orden
 
 
 @pytest.mark.asyncio
@@ -70,8 +72,8 @@ async def test_ad_spend_reimport_replaces_range(session):
     df = normalize_ad_spend(read_table(ads, "a.csv"))
     await import_ad_spend(session, df)
     await import_ad_spend(session, df)
-    assert await _count(session, AdSpend) == 2
-    total = await session.scalar(select(func.sum(AdSpend.amount)))
+    assert await _count(session, AdSpendDaily) == 2
+    total = await session.scalar(select(func.sum(AdSpendDaily.spend)))
     assert Decimal(total) == Decimal("30.00")
 
 

@@ -9,9 +9,11 @@ from __future__ import annotations
 import asyncio
 import random
 from datetime import date, timedelta
+from decimal import Decimal
 
 from sqlalchemy import func, select
 
+from app.costs import set_product_cost
 from app.db import SessionLocal, init_db
 from app.importers.canonical import normalize_ad_spend, normalize_orders, read_table
 from app.importers.persist import import_ad_spend, import_orders
@@ -69,7 +71,7 @@ async def main() -> None:
         a = await import_ad_spend(session, normalize_ad_spend(read_table(ads_csv, "a.csv")))
         cogs = {sku: c for sku, _, _, c in PRODUCTS}
         for product in (await session.scalars(select(Product))).all():
-            product.cogs_unit = cogs[product.sku]
+            await set_product_cost(session, product.id, Decimal(str(cogs[product.sku])))
         await session.commit()
     print(f"Demo cargada: {o.inserted} líneas de orden, {a.inserted} filas de publicidad.")
 

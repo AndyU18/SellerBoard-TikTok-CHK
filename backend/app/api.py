@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.connectors.tiktok_shop import TikTokShopClient, TikTokShopError
 from app.connectors.tiktok_shop_sync import sync_tiktok_shop
+from app.costs import load_cost_history, set_product_cost
 from app.db import get_session
 from app.importers.canonical import (
     ImportValidationError,
@@ -44,6 +45,7 @@ GROUP_COLUMNS: dict[str, list[str]] = {
 
 class CogsUpdate(BaseModel):
     cogs_unit: Decimal = Field(ge=0, max_digits=14, decimal_places=4)
+    valid_from: date | None = None  # sin fecha: ver costs.set_product_cost
 
 
 @router.get("/health")
@@ -131,15 +133,21 @@ async def profit_timeseries(
 
 @router.get("/accounts")
 async def list_accounts(session: SessionDep) -> list[dict]:
-    rows = (await session.scalars(select(Account).order_by(Account.channel, Account.name))).all()
-    return [{"id": a.id, "channel": a.channel.value, "name": a.name} for a in rows]
+    rows = (
+        await session.scalars(select(Account).order_by(Account.channel_code, Account.name))
+    ).all()
+    return [{"id": a.id, "channel": a.channel_code, "name": a.name} for a in rows]
 
 
 @router.get("/products")
 async def list_products(session: SessionDep) -> list[dict]:
+    """Productos con su costo unitario vigente hoy."""
     rows = (await session.scalars(select(Product).order_by(Product.sku))).all()
+    costs = await load_cost_history(session)
+    today = date.today()
     return [
-        {"id": p.id, "sku": p.sku, "name": p.name, "cogs_unit": float(p.cogs_unit)} for p in rows
+        {"id": p.id, "sku": p.sku, "name": p.name, "cogs_unit": costs.unit_cost(p.id, today)}
+        for p in rows
     ]
 
 
@@ -148,6 +156,11 @@ async def update_cogs(product_id: int, body: CogsUpdate, session: SessionDep) ->
     product = await session.get(Product, product_id)
     if product is None:
         raise HTTPException(404, "Producto no encontrado")
-    product.cogs_unit = body.cogs_unit
+    await set_product_cost(session, product.id, body.cogs_unit, body.valid_from)
     await session.commit()
-    return {"id": product.id, "sku": product.sku, "cogs_unit": float(product.cogs_unit)}
+    costs = await load_cost_history(session)
+    return {
+        "id": product.id,
+        "sku": product.sku,
+        "cogs_unit": costs.unit_cost(product.id, date.today()),
+    }
