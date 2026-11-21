@@ -303,6 +303,70 @@ class AffiliateOrder(Base):
     settlement_status: Mapped[str | None] = mapped_column(String)
 
 
+class TrafficDaily(Base):
+    """Embudo de tráfico por día y origen (ALL | LIVE | VIDEO | PRODUCT_CARD)."""
+
+    __tablename__ = "traffic_daily"
+    __table_args__ = (UniqueConstraint("account_id", "day", "source"), {"schema": "sales"})
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("sales.account.id"))
+    day: Mapped[date] = mapped_column(Date, index=True)
+    source: Mapped[str] = mapped_column(String)
+    impressions: Mapped[int | None]
+    page_views: Mapped[int | None]
+    visitors: Mapped[int | None]
+    buyers: Mapped[int | None]
+    orders: Mapped[int | None]
+    units: Mapped[int | None]
+    gmv: Mapped[Decimal | None] = mapped_column(Money)
+
+
+class LiveSession(Base):
+    """Transmisión LIVE (propia o de un creador) con sus ventas."""
+
+    __tablename__ = "live_session"
+    __table_args__ = (UniqueConstraint("account_id", "external_id"), {"schema": "sales"})
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("sales.account.id"))
+    external_id: Mapped[str] = mapped_column(String)
+    username: Mapped[str | None] = mapped_column(String)
+    title: Mapped[str | None] = mapped_column(String)
+    start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    gmv: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    gmv_24h: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    orders: Mapped[int] = mapped_column(default=0)
+    customers: Mapped[int] = mapped_column(default=0)
+    units: Mapped[int] = mapped_column(default=0)
+    products_added: Mapped[int] = mapped_column(default=0)
+    products_sold: Mapped[int] = mapped_column(default=0)
+    click_to_order_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
+    avg_price: Mapped[Decimal | None] = mapped_column(Money)
+
+
+class VideoPerformance(Base):
+    """Vistas, CTR y ventas de un video en la ventana sincronizada (máx. 60 días)."""
+
+    __tablename__ = "video_performance"
+    __table_args__ = (UniqueConstraint("account_id", "video_id"), {"schema": "sales"})
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("sales.account.id"))
+    video_id: Mapped[str] = mapped_column(String)
+    username: Mapped[str | None] = mapped_column(String, index=True)
+    title: Mapped[str | None] = mapped_column(String)
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    views: Mapped[int | None]
+    click_through_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
+    gmv: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    orders: Mapped[int] = mapped_column(default=0)
+    units: Mapped[int] = mapped_column(default=0)
+    window_start: Mapped[date | None] = mapped_column(Date)
+    window_end: Mapped[date | None] = mapped_column(Date)
+
+
 class AdSpendDaily(Base):
     """Gasto publicitario diario (Amazon Ads, TikTok Ads, Walmart Connect)."""
 

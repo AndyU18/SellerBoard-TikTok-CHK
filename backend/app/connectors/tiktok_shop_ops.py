@@ -6,7 +6,7 @@ Funciones puras: reciben los JSON de la API y devuelven filas listas para guarda
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 # Las órdenes sin pagar no son ventas ni envíos.
@@ -196,6 +196,125 @@ def build_affiliate_orders(orders: list[dict[str, Any]]) -> list[dict[str, Any]]
                     "settlement_status": s.get("settlement_status"),
                 }
             )
+    return rows
+
+
+SOURCES = ("LIVE", "VIDEO", "PRODUCT_CARD")
+
+
+def _by_type(items: list[dict[str, Any]] | None, key: str = "amount") -> dict[str, Any]:
+    return {i.get("type"): i.get(key) for i in (items or [])}
+
+
+def _int(value: Any) -> int | None:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def build_traffic(intervals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Intervalos diarios de analytics -> filas por día y origen (ALL + LIVE/VIDEO/PRODUCT_CARD)."""
+    rows: list[dict[str, Any]] = []
+    for iv in intervals:
+        try:
+            day = datetime.strptime(iv["start_date"], "%Y-%m-%d").date()
+        except (KeyError, ValueError):
+            continue
+        rows.append(
+            {
+                "day": day,
+                "source": "ALL",
+                "impressions": _int(iv.get("product_impressions")),
+                "page_views": _int(iv.get("product_page_views")),
+                "visitors": _int(iv.get("avg_product_page_visitors")),
+                "buyers": _int(iv.get("buyers")),
+                "orders": _int(iv.get("orders")),
+                "units": _int(iv.get("units_sold")),
+                "gmv": _money(iv.get("gmv")),
+            }
+        )
+        impressions = _by_type(iv.get("product_impression_breakdowns"))
+        views = _by_type(iv.get("product_page_view_breakdowns"))
+        visitors = _by_type(iv.get("avg_product_page_visitor_breakdowns"))
+        buyers = _by_type(iv.get("buyer_breakdowns"))
+        gmv = _by_type(iv.get("gmv_breakdowns"))
+        for source in SOURCES:
+            rows.append(
+                {
+                    "day": day,
+                    "source": source,
+                    "impressions": _int(impressions.get(source)),
+                    "page_views": _int(views.get(source)),
+                    "visitors": _int(visitors.get(source)),
+                    "buyers": _int(buyers.get(source)),
+                    "orders": None,
+                    "units": None,
+                    "gmv": _f(gmv.get(source)) if source in gmv else None,
+                }
+            )
+    return rows
+
+
+def _pct(value: Any) -> float | None:
+    """'21.43%' -> 0.2143; '0.0196' -> 0.0196."""
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    return _f(text[:-1]) / 100 if text.endswith("%") else _f(text)
+
+
+def build_live_sessions(sessions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Sesiones LIVE de analytics -> filas."""
+    rows = []
+    for s in sessions:
+        p = s.get("sales_performance") or {}
+        rows.append(
+            {
+                "external_id": str(s["id"]),
+                "username": s.get("username"),
+                "title": s.get("title") or None,
+                "start_at": _ts(s.get("start_time")),
+                "end_at": _ts(s.get("end_time")),
+                "gmv": _money(p.get("gmv")) or 0.0,
+                "gmv_24h": _money(p.get("24h_live_gmv")) or 0.0,
+                "orders": _int(p.get("sku_orders")) or 0,
+                "customers": _int(p.get("customers")) or 0,
+                "units": _int(p.get("unit_sold")) or 0,
+                "products_added": _int(p.get("products_added")) or 0,
+                "products_sold": _int(p.get("different_products_sold")) or 0,
+                "click_to_order_rate": _pct(p.get("click_to_order_rate")),
+                "avg_price": _money(p.get("avg_price")),
+            }
+        )
+    return rows
+
+
+def build_video_performance(
+    videos: list[dict[str, Any]], start: date, end: date
+) -> list[dict[str, Any]]:
+    """Videos de analytics -> filas (la ventana se guarda para saber de qué periodo son las vistas)."""
+    rows = []
+    for v in videos:
+        try:
+            posted = datetime.strptime(v["video_post_time"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+        except (KeyError, ValueError, TypeError):
+            posted = None
+        rows.append(
+            {
+                "video_id": str(v["id"]),
+                "username": v.get("username"),
+                "title": v.get("title"),
+                "posted_at": posted,
+                "views": _int(v.get("views")),
+                "click_through_rate": _pct(v.get("click_through_rate")),
+                "gmv": _money(v.get("gmv")) or 0.0,
+                "orders": _int(v.get("sku_orders")) or 0,
+                "units": _int(v.get("units_sold")) or 0,
+                "window_start": start,
+                "window_end": end,
+            }
+        )
     return rows
 
 

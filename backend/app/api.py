@@ -43,7 +43,10 @@ from app.models import (
 from app.profit import abc_classes, overall, summarize
 from app.reports import (
     cashflow_report,
+    creatives_report,
     dayparting_report,
+    funnel_report,
+    live_report,
     logistics_report,
     promotions_report,
     returns_report,
@@ -305,6 +308,30 @@ async def samples(
 ) -> dict:
     """ROI de las muestras a creadores: costo enviado vs utilidad de sus ventas."""
     return await samples_report(session, start, end)
+
+
+@router.get("/funnel", dependencies=[Depends(require("profit.view"))])
+async def funnel(
+    session: SessionDep, start: date | None = None, end: date | None = None
+) -> dict:
+    """Embudo de tráfico: impresiones, vistas de producto y compradores, por origen y día."""
+    return await funnel_report(session, start, end)
+
+
+@router.get("/live", dependencies=[Depends(require("profit.view"))])
+async def live(
+    session: SessionDep, start: date | None = None, end: date | None = None
+) -> dict:
+    """Sesiones LIVE: ventas, duración y creadores que más venden."""
+    return await live_report(session, start, end)
+
+
+@router.get("/creatives", dependencies=[Depends(require("profit.view"))])
+async def creatives(
+    session: SessionDep, start: date | None = None, end: date | None = None
+) -> dict:
+    """Ventas y utilidad por video/LIVE de creadores (afiliados)."""
+    return await creatives_report(session, start, end)
 
 
 @router.get("/cashflow", dependencies=[Depends(require("profit.view"))])

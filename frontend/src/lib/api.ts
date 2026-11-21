@@ -236,6 +236,101 @@ export interface SamplesResponse {
   applications_by_status: { status: string; applications: number }[]
 }
 
+export interface FunnelStep {
+  impressions: number
+  page_views: number
+  visitors: number
+  buyers: number
+  orders: number
+  units: number
+  gmv: number
+  ctr: number | null
+  conversion: number | null
+}
+
+export interface FunnelResponse {
+  days: number
+  totals: FunnelStep & { aov: number | null }
+  by_source: (FunnelStep & { source: 'VIDEO' | 'LIVE' | 'PRODUCT_CARD'; gmv_share: number | null })[]
+  daily: {
+    day: string
+    impressions: number
+    page_views: number
+    orders: number
+    buyers: number
+    gmv: number
+    ctr: number | null
+    conversion: number | null
+  }[]
+}
+
+export interface LiveSessionRow {
+  external_id: string
+  username: string | null
+  title: string | null
+  start_at: string
+  duration_min: number | null
+  gmv: number
+  orders: number
+  customers: number
+  units: number
+  products_added: number
+  click_to_order_rate: number | null
+  gmv_per_hour: number | null
+}
+
+export interface LiveResponse {
+  summary: {
+    sessions: number
+    sessions_with_sales: number
+    gmv: number
+    orders: number
+    customers: number
+    units: number
+    avg_gmv_per_session: number | null
+    avg_duration_min: number | null
+    gmv_per_hour: number | null
+    top5_share: number | null
+  }
+  top_sessions: LiveSessionRow[]
+  by_creator: { username: string; sessions: number; gmv: number; orders: number }[]
+}
+
+export interface CreativesResponse {
+  summary: {
+    contents: number
+    creators: number
+    orders: number
+    gmv: number
+    commission: number
+    profit: number
+    top10_share: number | null
+    losing_contents: number
+    orders_pending: number
+  }
+  by_type: { content_type: string; contents: number; orders: number; gmv: number; profit: number }[]
+  contents: {
+    content_type: string
+    content_id: string
+    creator: string | null
+    url: string | null
+    orders: number
+    orders_pending: number
+    units: number
+    gmv: number
+    commission: number
+    profit: number
+    margin: number | null
+    first_order: string
+    last_order: string
+    top_sku: string | null
+    sampled: boolean
+    /** Vistas y CTR del video en los últimos 60 días (null si no es un video o no está entre los 300 con más ventas). */
+    views: number | null
+    ctr: number | null
+  }[]
+}
+
 export interface Filters {
   start?: string
   end?: string
@@ -325,6 +420,12 @@ export const api = {
     ),
   samples: (f: Filters) =>
     authFetch(`/api/samples${query({ start: f.start, end: f.end })}`).then((r) => parse<SamplesResponse>(r)),
+  funnel: (f: Filters) =>
+    authFetch(`/api/funnel${query({ start: f.start, end: f.end })}`).then((r) => parse<FunnelResponse>(r)),
+  live: (f: Filters) =>
+    authFetch(`/api/live${query({ start: f.start, end: f.end })}`).then((r) => parse<LiveResponse>(r)),
+  creatives: (f: Filters) =>
+    authFetch(`/api/creatives${query({ start: f.start, end: f.end })}`).then((r) => parse<CreativesResponse>(r)),
   cashflow: (f: Filters) =>
     authFetch(`/api/cashflow${query({ start: f.start, end: f.end })}`).then((r) => parse<CashflowResponse>(r)),
   products: () => authFetch('/api/products').then((r) => parse<Product[]>(r)),

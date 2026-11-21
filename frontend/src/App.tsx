@@ -3,15 +3,18 @@ import {
   Banknote,
   Clock,
   Coins,
+  Filter,
   GitCompareArrows,
   Gift,
   LayoutDashboard,
   LogOut,
   Package,
+  Radio,
   Tag,
   Truck,
   Undo2,
   Upload,
+  Video,
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 
@@ -19,9 +22,12 @@ import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
 import { Cashflow } from '@/pages/Cashflow'
 import { Costs } from '@/pages/Costs'
+import { Creatives } from '@/pages/Creatives'
 import { Dashboard } from '@/pages/Dashboard'
 import { Dayparting } from '@/pages/Dayparting'
+import { Funnel } from '@/pages/Funnel'
 import { Import } from '@/pages/Import'
+import { Live } from '@/pages/Live'
 import { Login } from '@/pages/Login'
 import { Logistics } from '@/pages/Logistics'
 import { Pareto } from '@/pages/Pareto'
@@ -41,6 +47,9 @@ type Page =
   | 'returns'
   | 'logistics'
   | 'samples'
+  | 'creatives'
+  | 'funnel'
+  | 'live'
   | 'products'
   | 'costs'
   | 'import'
@@ -55,6 +64,9 @@ const NAV: { id: Page; label: string; icon: ReactNode; permission: string }[] = 
   { id: 'returns', label: 'Devoluciones', icon: <Undo2 className="size-4" />, permission: 'profit.view' },
   { id: 'logistics', label: 'Logística', icon: <Truck className="size-4" />, permission: 'profit.view' },
   { id: 'samples', label: 'Muestras', icon: <Gift className="size-4" />, permission: 'profit.view' },
+  { id: 'creatives', label: 'Creativos', icon: <Video className="size-4" />, permission: 'profit.view' },
+  { id: 'funnel', label: 'Embudo', icon: <Filter className="size-4" />, permission: 'profit.view' },
+  { id: 'live', label: 'LIVE', icon: <Radio className="size-4" />, permission: 'profit.view' },
   { id: 'products', label: 'Productos', icon: <Package className="size-4" />, permission: 'catalog.view' },
   { id: 'costs', label: 'Costos (COGS)', icon: <Coins className="size-4" />, permission: 'catalog.view' },
   { id: 'import', label: 'Importar', icon: <Upload className="size-4" />, permission: 'import.run' },
@@ -161,6 +173,9 @@ export default function App() {
           {current === 'returns' && <Returns />}
           {current === 'logistics' && <Logistics />}
           {current === 'samples' && <Samples />}
+          {current === 'creatives' && <Creatives />}
+          {current === 'funnel' && <Funnel />}
+          {current === 'live' && <Live />}
           {current === 'products' && <Products />}
           {current === 'costs' && <Costs />}
           {current === 'import' && <Import />}

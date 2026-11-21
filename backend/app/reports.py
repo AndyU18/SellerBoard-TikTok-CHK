@@ -15,12 +15,13 @@ import polars as pl
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.costs import load_cost_history
+from app.costs import CostHistory, load_cost_history
 from app.gold import load_gold_frame
 from app.models import (
     Account,
     AffiliateOrder,
     Channel,
+    LiveSession,
     OrderLine,
     Product,
     ReturnCase,
@@ -31,6 +32,8 @@ from app.models import (
     Settlement,
     Shipment,
     ShippingLabelCost,
+    TrafficDaily,
+    VideoPerformance,
 )
 from app.profit import summarize
 
@@ -493,21 +496,10 @@ async def samples_report(
         aff_q = aff_q.where(AffiliateOrder.order_date <= end)
     affiliate = (await session.scalars(aff_q)).all()
     aff_orders = sorted({a.external_order_id for a in affiliate})
-    aff_lines = await _order_lines_by_external(session, aff_orders)
-    aff_labels = await _label_costs(session, aff_orders)
+    profits = await _profit_by_order(session, aff_orders, costs)
 
     def order_profit(oid: str) -> float | None:
-        lines = aff_lines.get(oid)
-        if not lines:
-            return None
-        total = 0.0
-        for r in lines:
-            cogs = float(r.units) * float(costs.unit_cost(r.product_id, r.order_date))
-            total += (
-                _f(r.gross_sales) - _f(r.promo) - _f(r.platform_fees) - _f(r.shipping_cost)
-                - _f(r.refund_amount) - cogs
-            )
-        return total - aff_labels.get(oid, 0.0)
+        return profits.get(oid)
 
     creators: dict[str, dict] = {}
     for oid, o in orders.items():
@@ -573,6 +565,29 @@ async def samples_report(
     }
 
 
+async def _profit_by_order(
+    session: AsyncSession, order_ids: list[str], costs: CostHistory
+) -> dict[str, float]:
+    """Utilidad neta de cada orden que ya está en ventas (las que no, no aparecen en el resultado).
+
+    Misma fórmula que la capa oro: ventas - promo - comisiones - envío - reembolsos - costo, y la
+    etiqueta de envío (Redo) de la orden.
+    """
+    lines = await _order_lines_by_external(session, order_ids)
+    labels = await _label_costs(session, list(lines))
+    out: dict[str, float] = {}
+    for oid, rows in lines.items():
+        total = 0.0
+        for r in rows:
+            cogs = float(r.units) * float(costs.unit_cost(r.product_id, r.order_date))
+            total += (
+                _f(r.gross_sales) - _f(r.promo) - _f(r.platform_fees) - _f(r.shipping_cost)
+                - _f(r.refund_amount) - cogs
+            )
+        out[oid] = total - labels.get(oid, 0.0)
+    return out
+
+
 def _blank_creator(name: str) -> dict:
     return {
         "creator": name,
@@ -622,6 +637,266 @@ async def _order_lines_by_external(
         ).all():
             out.setdefault(external_id, []).append(line)
     return out
+
+
+# ---------------------------------------------------------------- embudo de tráfico
+FUNNEL_SOURCES = ("VIDEO", "LIVE", "PRODUCT_CARD")
+
+
+async def funnel_report(
+    session: AsyncSession, start: date | None = None, end: date | None = None
+) -> dict:
+    """Embudo: impresiones -> vistas de producto -> compradores/órdenes, por origen y por día.
+
+    Las vistas únicas no se pueden sumar entre días: "visitors" es la suma de los visitantes
+    promedio diarios (visitante-días), útil para comparar, no como personas únicas.
+    """
+    query = select(TrafficDaily)
+    if start:
+        query = query.where(TrafficDaily.day >= start)
+    if end:
+        query = query.where(TrafficDaily.day <= end)
+    rows = (await session.scalars(query.order_by(TrafficDaily.day))).all()
+
+    def blank() -> dict:
+        return {"impressions": 0, "page_views": 0, "visitors": 0, "buyers": 0, "orders": 0, "units": 0, "gmv": 0.0}
+
+    totals = {"ALL": blank(), **{s: blank() for s in FUNNEL_SOURCES}}
+    daily: dict[date, dict] = {}
+    for r in rows:
+        t = totals.get(r.source)
+        if t is None:
+            continue
+        for k in ("impressions", "page_views", "visitors", "buyers", "orders", "units"):
+            t[k] += int(getattr(r, k) or 0)
+        t["gmv"] += _f(r.gmv)
+        if r.source == "ALL":
+            daily[r.day] = {
+                "day": r.day,
+                "impressions": int(r.impressions or 0),
+                "page_views": int(r.page_views or 0),
+                "orders": int(r.orders or 0),
+                "buyers": int(r.buyers or 0),
+                "gmv": _f(r.gmv),
+            }
+
+    def rates(t: dict) -> dict:
+        return {
+            **t,
+            "ctr": _ratio(t["page_views"], t["impressions"]),
+            "conversion": _ratio(t["buyers"], t["page_views"]),
+        }
+
+    all_t = totals["ALL"]
+    series = []
+    for d in daily.values():
+        series.append({**d, "ctr": _ratio(d["page_views"], d["impressions"]), "conversion": _ratio(d["buyers"], d["page_views"])})
+    gmv_sources = sum(totals[s]["gmv"] for s in FUNNEL_SOURCES)
+    return {
+        "days": len(daily),
+        "totals": {**rates(all_t), "aov": _ratio(all_t["gmv"], all_t["orders"])},
+        "by_source": [
+            {"source": s, **rates(totals[s]), "gmv_share": _ratio(totals[s]["gmv"], gmv_sources)}
+            for s in FUNNEL_SOURCES
+        ],
+        "daily": series,
+    }
+
+
+# ---------------------------------------------------------------- LIVE
+async def live_report(
+    session: AsyncSession, start: date | None = None, end: date | None = None
+) -> dict:
+    """Sesiones LIVE: ventas, duración, ventas por hora y los creadores que más venden."""
+    sessions = []
+    for s in (await session.scalars(select(LiveSession))).all():
+        started = _aware(s.start_at)
+        if started is None:
+            continue
+        day = started.date()
+        if (start and day < start) or (end and day > end):
+            continue
+        ended = _aware(s.end_at)
+        minutes = (ended - started).total_seconds() / 60 if ended and ended > started else None
+        sessions.append(
+            {
+                "external_id": s.external_id,
+                "username": s.username,
+                "title": s.title,
+                "start_at": started.isoformat(),
+                "duration_min": minutes,
+                "gmv": _f(s.gmv),
+                "orders": int(s.orders),
+                "customers": int(s.customers),
+                "units": int(s.units),
+                "products_added": int(s.products_added),
+                "click_to_order_rate": _f(s.click_to_order_rate) if s.click_to_order_rate is not None else None,
+                "gmv_per_hour": _ratio(_f(s.gmv), minutes / 60) if minutes else None,
+            }
+        )
+    with_sales = [s for s in sessions if s["gmv"] > 0]
+    total_gmv = sum(s["gmv"] for s in sessions)
+    durations = [s["duration_min"] for s in sessions if s["duration_min"]]
+    hours = sum(durations) / 60
+
+    creators: dict[str, dict] = {}
+    for s in sessions:
+        c = creators.setdefault(
+            s["username"] or "(sin usuario)",
+            {"username": s["username"] or "(sin usuario)", "sessions": 0, "gmv": 0.0, "orders": 0},
+        )
+        c["sessions"] += 1
+        c["gmv"] += s["gmv"]
+        c["orders"] += s["orders"]
+    ranked = sorted(sessions, key=lambda s: s["gmv"], reverse=True)
+    return {
+        "summary": {
+            "sessions": len(sessions),
+            "sessions_with_sales": len(with_sales),
+            "gmv": total_gmv,
+            "orders": sum(s["orders"] for s in sessions),
+            "customers": sum(s["customers"] for s in sessions),
+            "units": sum(s["units"] for s in sessions),
+            "avg_gmv_per_session": _ratio(total_gmv, len(sessions)),
+            "avg_duration_min": sum(durations) / len(durations) if durations else None,
+            "gmv_per_hour": _ratio(total_gmv, hours),
+            "top5_share": _ratio(sum(s["gmv"] for s in ranked[:5]), total_gmv),
+        },
+        "top_sessions": ranked[:30],
+        "by_creator": sorted(creators.values(), key=lambda c: c["gmv"], reverse=True)[:15],
+    }
+
+
+# ---------------------------------------------------------------- creativos (videos virales)
+CREATIVES_LIMIT = 200
+
+
+async def creatives_report(
+    session: AsyncSession, start: date | None = None, end: date | None = None
+) -> dict:
+    """Ventas y utilidad por contenido de creador (video, LIVE, enlace, tienda).
+
+    La utilidad de una orden se reparte entre los contenidos que la originaron según su base de
+    comisión. La comisión de afiliado ya va dentro de las comisiones de esa utilidad.
+    Las órdenes aún sin liquidar no tienen utilidad calculable y se cuentan aparte.
+    """
+    costs = await load_cost_history(session)
+    query = select(AffiliateOrder)
+    if start:
+        query = query.where(AffiliateOrder.order_date >= start)
+    if end:
+        query = query.where(AffiliateOrder.order_date <= end)
+    rows = (await session.scalars(query)).all()
+    profits = await _profit_by_order(session, sorted({r.external_order_id for r in rows}), costs)
+    sampled = {
+        u
+        for (u,) in (
+            await session.execute(
+                select(SampleApplication.creator_username).where(
+                    SampleApplication.external_order_id.is_not(None)
+                )
+            )
+        ).all()
+        if u
+    }
+
+    base_by_order: dict[str, float] = {}
+    lines_by_order: dict[str, int] = {}
+    for r in rows:
+        base_by_order[r.external_order_id] = base_by_order.get(r.external_order_id, 0.0) + _f(r.commission_base)
+        lines_by_order[r.external_order_id] = lines_by_order.get(r.external_order_id, 0) + 1
+
+    contents: dict[tuple[str, str], dict] = {}
+    for r in rows:
+        key = (r.content_type or "(sin tipo)", r.content_id or "(sin contenido)")
+        c = contents.setdefault(
+            key,
+            {
+                "content_type": key[0],
+                "content_id": key[1],
+                "creator": r.creator_username,
+                "orders": set(),
+                "pending": set(),
+                "units": 0,
+                "gmv": 0.0,
+                "commission": 0.0,
+                "profit": 0.0,
+                "first_order": r.order_date,
+                "last_order": r.order_date,
+                "skus": {},
+            },
+        )
+        oid = r.external_order_id
+        c["orders"].add(oid)
+        c["units"] += int(r.units)
+        c["gmv"] += _f(r.commission_base)
+        c["commission"] += _f(r.commission)
+        c["first_order"] = min(c["first_order"], r.order_date)
+        c["last_order"] = max(c["last_order"], r.order_date)
+        if r.sku:
+            c["skus"][r.sku] = c["skus"].get(r.sku, 0) + int(r.units)
+        if oid in profits:
+            total_base = base_by_order[oid]
+            share = _f(r.commission_base) / total_base if total_base > 0 else 1 / lines_by_order[oid]
+            c["profit"] += profits[oid] * share
+        else:
+            c["pending"].add(oid)
+
+    perf = {v.video_id: v for v in (await session.scalars(select(VideoPerformance))).all()}
+    result = []
+    for c in contents.values():
+        is_video = c["content_type"] == "VIDEO" and c["creator"] and c["content_id"].isdigit()
+        views = perf.get(c["content_id"])
+        result.append(
+            {
+                "views": views.views if views else None,
+                "ctr": _f(views.click_through_rate) if views and views.click_through_rate is not None else None,
+                "content_type": c["content_type"],
+                "content_id": c["content_id"],
+                "creator": c["creator"],
+                "url": f"https://www.tiktok.com/@{c['creator']}/video/{c['content_id']}" if is_video else None,
+                "orders": len(c["orders"]),
+                "orders_pending": len(c["pending"]),
+                "units": c["units"],
+                "gmv": c["gmv"],
+                "commission": c["commission"],
+                "profit": c["profit"],
+                "margin": _ratio(c["profit"], c["gmv"]),
+                "first_order": c["first_order"],
+                "last_order": c["last_order"],
+                "top_sku": max(c["skus"], key=c["skus"].get) if c["skus"] else None,  # type: ignore[arg-type]
+                "sampled": c["creator"] in sampled,
+            }
+        )
+    result.sort(key=lambda r: r["gmv"], reverse=True)
+
+    by_type: dict[str, dict] = {}
+    for r in result:
+        t = by_type.setdefault(
+            r["content_type"],
+            {"content_type": r["content_type"], "contents": 0, "orders": 0, "gmv": 0.0, "profit": 0.0},
+        )
+        t["contents"] += 1
+        t["orders"] += r["orders"]
+        t["gmv"] += r["gmv"]
+        t["profit"] += r["profit"]
+
+    total_gmv = sum(r["gmv"] for r in result)
+    return {
+        "summary": {
+            "contents": len(result),
+            "creators": len({r["creator"] for r in result}),
+            "orders": len({r.external_order_id for r in rows}),
+            "gmv": total_gmv,
+            "commission": sum(r["commission"] for r in result),
+            "profit": sum(r["profit"] for r in result),
+            "top10_share": _ratio(sum(r["gmv"] for r in result[:10]), total_gmv),
+            "losing_contents": sum(1 for r in result if r["profit"] < 0),
+            "orders_pending": len({r.external_order_id for r in rows if r.external_order_id not in profits}),
+        },
+        "by_type": sorted(by_type.values(), key=lambda t: t["gmv"], reverse=True),
+        "contents": result[:CREATIVES_LIMIT],
+    }
 
 
 # ---------------------------------------------------------------- flujo de caja

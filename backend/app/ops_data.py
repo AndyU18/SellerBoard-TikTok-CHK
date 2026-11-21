@@ -15,11 +15,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import (
     Account,
     AffiliateOrder,
+    LiveSession,
     ReturnCase,
     ReturnCaseLine,
     SampleApplication,
     SampleLine,
     Shipment,
+    TrafficDaily,
+    VideoPerformance,
 )
 
 CHUNK = 500
@@ -179,6 +182,42 @@ async def upsert_sample_lines(
         return 0
     account = await ensure_account(session, channel, account_name)
     return await _upsert_keyed(session, SampleLine, account, ("external_order_id", "sku"), rows)
+
+
+async def upsert_traffic(
+    session: AsyncSession, channel: str, account_name: str, rows: list[dict[str, Any]]
+) -> int:
+    if not rows:
+        return 0
+    account = await ensure_account(session, channel, account_name)
+    return await _upsert_keyed(session, TrafficDaily, account, ("day", "source"), rows, ("gmv",))
+
+
+async def upsert_live_sessions(
+    session: AsyncSession, channel: str, account_name: str, rows: list[dict[str, Any]]
+) -> int:
+    if not rows:
+        return 0
+    account = await ensure_account(session, channel, account_name)
+    return await _upsert_keyed(
+        session,
+        LiveSession,
+        account,
+        ("external_id",),
+        rows,
+        ("gmv", "gmv_24h", "click_to_order_rate", "avg_price"),
+    )
+
+
+async def upsert_video_performance(
+    session: AsyncSession, channel: str, account_name: str, rows: list[dict[str, Any]]
+) -> int:
+    if not rows:
+        return 0
+    account = await ensure_account(session, channel, account_name)
+    return await _upsert_keyed(
+        session, VideoPerformance, account, ("video_id",), rows, ("gmv", "click_through_rate")
+    )
 
 
 async def upsert_affiliate_orders(

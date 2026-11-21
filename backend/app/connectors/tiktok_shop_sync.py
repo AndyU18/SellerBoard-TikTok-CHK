@@ -17,22 +17,28 @@ from typing import Any
 import polars as pl
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.connectors.tiktok_shop import TikTokShopClient
+from app.connectors.tiktok_shop import TikTokShopClient, TikTokShopError
 from app.connectors.tiktok_shop_ops import (
     build_affiliate_orders,
+    build_live_sessions,
     build_return_cases,
     build_sample_applications,
     build_sample_lines,
     build_shipments,
+    build_traffic,
+    build_video_performance,
     sku_by_order_line,
 )
 from app.importers.persist import ImportResult, import_orders
 from app.ops_data import (
     upsert_affiliate_orders,
+    upsert_live_sessions,
     upsert_return_cases,
     upsert_sample_applications,
     upsert_sample_lines,
     upsert_shipments,
+    upsert_traffic,
+    upsert_video_performance,
 )
 from app.settlements import upsert_settlements
 
@@ -202,6 +208,29 @@ class Window:
     cancellations: list[dict[str, Any]] = field(default_factory=list)
     applications: list[dict[str, Any]] = field(default_factory=list)
     affiliate_orders: list[dict[str, Any]] = field(default_factory=list)
+    traffic: list[dict[str, Any]] = field(default_factory=list)
+    lives: list[dict[str, Any]] = field(default_factory=list)
+    videos: list[dict[str, Any]] = field(default_factory=list)
+    video_window: tuple[date, date] = field(default_factory=lambda: (date.today(), date.today()))
+    analytics_errors: list[str] = field(default_factory=list)
+
+
+def _fetch_analytics(client: TikTokShopClient, w: Window, days: int) -> None:
+    """Tráfico, LIVE y videos. Un fallo aquí (permisos, límites) no debe tumbar la sincronización."""
+    today = date.today()
+    # Límites de TikTok: tráfico 90 días, LIVE 90, videos 60.
+    traffic_start = today - timedelta(days=min(days, 89))
+    video_start = today - timedelta(days=min(days, 59))
+    w.video_window = (video_start, today)
+    for label, load in (
+        ("traffic", lambda: w.traffic.extend(client.shop_traffic(traffic_start, today))),
+        ("lives", lambda: w.lives.extend(client.iter_live_sessions(traffic_start, today))),
+        ("videos", lambda: w.videos.extend(client.iter_video_performance(video_start, today))),
+    ):
+        try:
+            load()
+        except TikTokShopError as exc:
+            w.analytics_errors.append(f"{label}: {exc}")
 
 
 def fetch_window(client: TikTokShopClient, days: int) -> Window:
@@ -214,6 +243,7 @@ def fetch_window(client: TikTokShopClient, days: int) -> Window:
     w.cancellations = list(client.iter_cancellations(start, end))
     w.applications = list(client.iter_sample_applications())
     w.affiliate_orders = list(client.iter_affiliate_orders(start, end))
+    _fetch_analytics(client, w, days)
     window = {o["id"] for o in w.orders}
     w.statements = list(client.iter_statements(start, end))
     for statement in w.statements:
@@ -247,5 +277,13 @@ async def sync_tiktok_shop(
     stats["affiliate_orders"] = await upsert_affiliate_orders(
         session, CHANNEL, account, build_affiliate_orders(w.affiliate_orders)
     )
+    stats["traffic_days"] = await upsert_traffic(session, CHANNEL, account, build_traffic(w.traffic))
+    stats["live_sessions"] = await upsert_live_sessions(
+        session, CHANNEL, account, build_live_sessions(w.lives)
+    )
+    stats["videos"] = await upsert_video_performance(
+        session, CHANNEL, account, build_video_performance(w.videos, *w.video_window)
+    )
+    stats["analytics_errors"] = len(w.analytics_errors)
     await session.commit()
     return SyncReport(days=days, stats=stats, imported=imported)

@@ -123,6 +123,59 @@ def test_builders_map_samples_applications_and_commissions():
 
 
 @pytest.mark.asyncio
+async def test_creatives_groups_sales_by_content_and_splits_order_profit(env):
+    client, maker = env
+    tx = {
+        "order_id": "AO1",
+        "gross_sales_amount": "100",
+        "seller_discount_amount": "0",
+        "fee_amount": "-15",
+        "shipping_cost_amount": "-5",
+        "gross_sales_refund_amount": "0",
+    }
+    frame, _ = build_order_lines([_order("AO1")], [tx])
+
+    def sku_row(content_id, content_type, base):
+        row = _aff("AO1", "cr1", actual=True)["skus"][0]
+        return {
+            **row,
+            "sku_id": f"sku-{content_id}",
+            "content_id": content_id,
+            "content_type": content_type,
+            "actual_commission_base": {"amount": str(base), "currency": "USD"},
+        }
+
+    # AO1 vino de dos contenidos de cr1 (75/25 de la base); AO2 no está en ventas (pendiente)
+    both = {"id": "AO1", "create_time": T0, "skus": [sku_row("111", "VIDEO", 75), sku_row("222", "LIVE", 25)]}
+    pending = _aff("AO2", "cr2")
+    pending["skus"][0]["content_id"] = "333"
+    async with maker() as s:
+        await import_orders(s, frame)
+        product = await s.scalar(select(Product).where(Product.sku == "A"))
+        await set_product_cost(s, product.id, Decimal(10), None)
+        await upsert_sample_applications(
+            s, "tiktok_shop", "tiktok_shop_us", build_sample_applications([_app("1", "cr1", "S1")])
+        )
+        await upsert_affiliate_orders(
+            s, "tiktok_shop", "tiktok_shop_us", build_affiliate_orders([both, pending])
+        )
+        await s.commit()
+
+    body = (await client.get("/api/creatives")).json()
+    by_id = {c["content_id"]: c for c in body["contents"]}
+    # utilidad de AO1 = 100 - 15 - 5 - 10 = 70, repartida 75% / 25%
+    assert by_id["111"]["profit"] == pytest.approx(52.5) and by_id["222"]["profit"] == pytest.approx(17.5)
+    assert by_id["111"]["url"] == "https://www.tiktok.com/@cr1/video/111"
+    assert by_id["222"]["url"] is None  # un LIVE no tiene URL de video
+    assert by_id["111"]["sampled"] is True and by_id["333"]["sampled"] is False
+    assert by_id["333"]["orders_pending"] == 1 and by_id["333"]["profit"] == 0
+    sm = body["summary"]
+    assert sm["contents"] == 3 and sm["creators"] == 2 and sm["orders_pending"] == 1
+    assert sm["profit"] == pytest.approx(70)
+    assert {t["content_type"] for t in body["by_type"]} == {"VIDEO", "LIVE"}
+
+
+@pytest.mark.asyncio
 async def test_samples_roi_by_creator(env):
     client, maker = env
     # Venta atribuida a cr1 (entró a ventas): 100 - 15 comisiones - 5 envío - 10 de costo = 70

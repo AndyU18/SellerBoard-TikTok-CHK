@@ -13,7 +13,8 @@ import hmac
 import json
 import time
 from collections.abc import Iterator
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from itertools import islice
 from pathlib import Path
 from typing import Any
 
@@ -245,6 +246,59 @@ class TikTokShopClient:
                 {"create_time_ge": int(cursor.timestamp()), "create_time_lt": int(upper.timestamp())},
             )
             cursor = upper
+
+    # --- analytics (límites de TikTok: tráfico 90 días, LIVE 90, videos 60) ---------------
+    def shop_traffic(self, start: date, end: date) -> list[dict[str, Any]]:
+        """Rendimiento diario de la tienda: impresiones, vistas, compradores y GMV por origen."""
+        data = self.request(
+            "GET",
+            "/analytics/202405/shop/performance",
+            {
+                "start_date_ge": start.isoformat(),
+                "end_date_lt": end.isoformat(),
+                "granularity": "1D",
+                "currency": "USD",
+            },
+        )
+        return data.get("performance", {}).get("intervals", [])
+
+    def iter_live_sessions(
+        self, start: date, end: date, limit: int = 600
+    ) -> Iterator[dict[str, Any]]:
+        """Sesiones LIVE con más GMV de la ventana (hasta `limit`)."""
+        pages = self._paginate(
+            "GET",
+            "/analytics/202508/shop_lives/performance",
+            "live_stream_sessions",
+            {
+                "start_date_ge": start.isoformat(),
+                "end_date_lt": end.isoformat(),
+                "currency": "USD",
+                "page_size": 100,
+                "sort_field": "gmv",
+                "sort_order": "DESC",
+            },
+        )
+        yield from islice(pages, limit)
+
+    def iter_video_performance(
+        self, start: date, end: date, limit: int = 300
+    ) -> Iterator[dict[str, Any]]:
+        """Videos con más GMV de la ventana (hasta `limit`); la ventana no puede pasar de 60 días."""
+        pages = self._paginate(
+            "GET",
+            "/analytics/202409/shop_videos/performance",
+            "videos",
+            {
+                "start_date_ge": start.isoformat(),
+                "end_date_lt": end.isoformat(),
+                "currency": "USD",
+                "page_size": 100,
+                "sort_field": "gmv",
+                "sort_order": "DESC",
+            },
+        )
+        yield from islice(pages, limit)
 
     def iter_statements(
         self, start: datetime, end: datetime
