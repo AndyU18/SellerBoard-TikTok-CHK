@@ -242,9 +242,10 @@ async def profit_pareto(
     start: date | None = None,
     end: date | None = None,
     channel: Channel | None = None,
+    account: str | None = None,
 ) -> dict:
     """Clasificación ABC (Pareto) de productos por utilidad neta o por ventas."""
-    df = await load_gold_frame(session, start=start, end=end, channel=channel)
+    df = await load_gold_frame(session, start=start, end=end, channel=channel, account=account)
     products = summarize(df, ["sku"])
     if products.height == 0:
         return {"metric": metric, "rows": [], "summary": {}}
@@ -264,9 +265,10 @@ async def promotions(
     start: date | None = None,
     end: date | None = None,
     channel: Channel | None = None,
+    account: str | None = None,
 ) -> dict:
     """Auditoría de promociones: descuento del vendedor vs subsidio de la plataforma."""
-    return await promotions_report(session, start, end, channel)
+    return await promotions_report(session, start, end, channel, account)
 
 
 @router.get("/dayparting", dependencies=[Depends(require("profit.view"))])
@@ -275,9 +277,10 @@ async def dayparting(
     start: date | None = None,
     end: date | None = None,
     channel: Channel | None = None,
+    account: str | None = None,
 ) -> dict:
     """Órdenes y ventas por día de la semana y hora (zona horaria CHK_REPORT_TIMEZONE)."""
-    return await dayparting_report(session, settings.report_timezone, start, end, channel)
+    return await dayparting_report(session, settings.report_timezone, start, end, channel, account)
 
 
 @router.get("/returns", dependencies=[Depends(require("profit.view"))])
@@ -286,9 +289,10 @@ async def returns(
     start: date | None = None,
     end: date | None = None,
     channel: Channel | None = None,
+    account: str | None = None,
 ) -> dict:
     """Devoluciones y cancelaciones (RMA): motivos, productos y tasa de devolución."""
-    return await returns_report(session, start, end, channel)
+    return await returns_report(session, start, end, channel, account)
 
 
 @router.get("/logistics", dependencies=[Depends(require("profit.view"))])
@@ -297,54 +301,79 @@ async def logistics(
     start: date | None = None,
     end: date | None = None,
     channel: Channel | None = None,
+    account: str | None = None,
 ) -> dict:
     """Tiempos de envío, puntualidad y transportistas."""
-    return await logistics_report(session, start, end, channel)
+    return await logistics_report(session, start, end, channel, account)
 
 
 @router.get("/samples", dependencies=[Depends(require("profit.view"))])
 async def samples(
-    session: SessionDep, start: date | None = None, end: date | None = None
+    session: SessionDep,
+    start: date | None = None,
+    end: date | None = None,
+    channel: Channel | None = None,
+    account: str | None = None,
 ) -> dict:
     """ROI de las muestras a creadores: costo enviado vs utilidad de sus ventas."""
-    return await samples_report(session, start, end)
+    return await samples_report(session, start, end, channel, account)
 
 
 @router.get("/funnel", dependencies=[Depends(require("profit.view"))])
 async def funnel(
-    session: SessionDep, start: date | None = None, end: date | None = None
+    session: SessionDep,
+    start: date | None = None,
+    end: date | None = None,
+    channel: Channel | None = None,
+    account: str | None = None,
 ) -> dict:
     """Embudo de tráfico: impresiones, vistas de producto y compradores, por origen y día."""
-    return await funnel_report(session, start, end)
+    return await funnel_report(session, start, end, channel, account)
 
 
 @router.get("/live", dependencies=[Depends(require("profit.view"))])
 async def live(
-    session: SessionDep, start: date | None = None, end: date | None = None
+    session: SessionDep,
+    start: date | None = None,
+    end: date | None = None,
+    channel: Channel | None = None,
+    account: str | None = None,
 ) -> dict:
     """Sesiones LIVE: ventas, duración y creadores que más venden."""
-    return await live_report(session, start, end)
+    return await live_report(session, start, end, channel, account)
 
 
 @router.get("/creatives", dependencies=[Depends(require("profit.view"))])
 async def creatives(
-    session: SessionDep, start: date | None = None, end: date | None = None
+    session: SessionDep,
+    start: date | None = None,
+    end: date | None = None,
+    channel: Channel | None = None,
+    account: str | None = None,
 ) -> dict:
     """Ventas y utilidad por video/LIVE de creadores (afiliados)."""
-    return await creatives_report(session, start, end)
+    return await creatives_report(session, start, end, channel, account)
 
 
 @router.get("/cashflow", dependencies=[Depends(require("profit.view"))])
 async def cashflow(
-    session: SessionDep, start: date | None = None, end: date | None = None
+    session: SessionDep,
+    start: date | None = None,
+    end: date | None = None,
+    channel: Channel | None = None,
+    account: str | None = None,
 ) -> dict:
     """Liquidaciones de las plataformas: lo cobrado y lo que está por cobrar."""
-    return await cashflow_report(session, start, end)
+    return await cashflow_report(session, start, end, channel, account)
 
 
 @router.post("/gold/refresh", dependencies=[Depends(require("sync.run", writes=True))])
 async def gold_refresh(
-    session: SessionDep, start: date | None = None, end: date | None = None
+    session: SessionDep,
+    start: date | None = None,
+    end: date | None = None,
+    channel: Channel | None = None,
+    account: str | None = None,
 ) -> dict:
     """Reconstruye la capa oro (todo, o solo el rango dado) desde la capa plata."""
     rows = await refresh_daily_profit(session, start, end, reason="manual")

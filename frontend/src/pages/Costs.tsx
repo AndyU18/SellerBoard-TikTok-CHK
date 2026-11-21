@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { api, type Product } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
 import { count, money, presetRange } from '@/lib/format'
+import { useScope } from '@/lib/scope'
 import { useAsync } from '@/lib/useAsync'
 
 function History({ productId }: { productId: number }) {
@@ -42,7 +43,12 @@ export function Costs() {
   const [saved, setSaved] = useState<string | null>(null)
 
   const products = useAsync(() => api.products(), [version])
-  const sales = useAsync(() => api.profit('product', presetRange('90d')), [version])
+  // Las ventas de la columna "90 d" respetan el canal y la tienda elegidos; el costo es del producto.
+  const scope = useScope()
+  const sales = useAsync(
+    () => api.profit('product', { ...presetRange('90d'), channel: scope.channelParam, account: scope.account }),
+    [version, scope.channelParam, scope.account],
+  )
 
   const bySku = useMemo(() => new Map((sales.data?.rows ?? []).map((r) => [r.sku, r])), [sales.data])
   const list = useMemo(() => {

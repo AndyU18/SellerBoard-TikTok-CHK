@@ -19,7 +19,9 @@ import {
 import { useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { ScopeBar } from '@/components/ScopeBar'
 import { useAuth } from '@/lib/auth'
+import { ScopeProvider } from '@/lib/scope'
 import { Cashflow } from '@/pages/Cashflow'
 import { Costs } from '@/pages/Costs'
 import { Creatives } from '@/pages/Creatives'
@@ -117,6 +119,7 @@ export default function App() {
   const current = nav.some((n) => n.id === page) ? page : nav[0].id
 
   return (
+    <ScopeProvider>
     <div className="flex min-h-screen">
       <aside className="hidden w-56 shrink-0 flex-col bg-slate-800 p-4 text-slate-100 md:flex">
         <div className="mb-6 text-lg font-bold tracking-tight">
@@ -163,6 +166,7 @@ export default function App() {
             <LogOut className="size-4" />
           </button>
         </nav>
+        {current !== 'import' && <ScopeBar />}
         <main className="flex-1 p-6">
           {current === 'dashboard' && <Dashboard />}
           {current === 'pareto' && <Pareto />}
@@ -182,5 +186,6 @@ export default function App() {
         </main>
       </div>
     </div>
+    </ScopeProvider>
   )
 }

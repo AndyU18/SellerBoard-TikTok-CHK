@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 
-import { FilterBar, type ChannelFilter } from '@/components/FilterBar'
+import { FilterBar } from '@/components/FilterBar'
+import { useScope } from '@/lib/scope'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { api, type DaypartCell, type Filters } from '@/lib/api'
@@ -15,12 +16,12 @@ const hourLabel = (h: number) => `${String(h).padStart(2, '0')}:00`
 
 export function Dayparting() {
   const [preset, setPreset] = useState<Preset>('90d')
-  const [channel, setChannel] = useState<ChannelFilter>('all')
+  const scope = useScope()
   const [metric, setMetric] = useState<Metric>('orders')
 
   const filters = useMemo<Filters>(
-    () => ({ ...presetRange(preset), channel: channel === 'all' ? '' : channel }),
-    [preset, channel],
+    () => ({ ...presetRange(preset), channel: scope.channelParam, account: scope.account }),
+    [preset, scope.channelParam, scope.account],
   )
   const data = useAsync(() => api.dayparting(filters), [filters])
 
@@ -39,7 +40,7 @@ export function Dayparting() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Dayparting: horas pico</h1>
-        <FilterBar preset={preset} onPreset={setPreset} channel={channel} onChannel={setChannel} />
+        <FilterBar preset={preset} onPreset={setPreset} />
       </div>
 
       {data.error && (

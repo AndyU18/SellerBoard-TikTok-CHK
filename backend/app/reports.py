@@ -40,6 +40,20 @@ from app.profit import summarize
 DEEP_DISCOUNT = 0.30  # descuento total (vendedor + plataforma) desde el cual se marca "agresivo"
 
 
+async def _scope_ids(
+    session: AsyncSession, channel: Channel | None, account: str | None
+) -> list[int] | None:
+    """Ids de las cuentas (tiendas) que cumplen el filtro; None = sin filtro (todas)."""
+    if channel is None and not account:
+        return None
+    query = select(Account.id)
+    if channel is not None:
+        query = query.where(Account.channel_code == channel.value)
+    if account:
+        query = query.where(Account.name == account)
+    return list((await session.scalars(query)).all())
+
+
 def _f(value: object) -> float:
     return float(value or 0)  # type: ignore[arg-type]
 
@@ -54,6 +68,7 @@ async def promotions_report(
     start: date | None = None,
     end: date | None = None,
     channel: Channel | None = None,
+    account: str | None = None,
 ) -> dict:
     """Descuentos del vendedor vs subsidio de la plataforma, por canal y producto.
 
@@ -82,6 +97,8 @@ async def promotions_report(
         query = query.where(OrderLine.order_date <= end)
     if channel:
         query = query.where(Account.channel_code == channel.value)
+    if account:
+        query = query.where(Account.name == account)
     data = [
         {
             "channel": ch,
@@ -98,7 +115,7 @@ async def promotions_report(
     if not data:
         return {"rows": [], "totals": None}
 
-    gold = await load_gold_frame(session, start=start, end=end, channel=channel)
+    gold = await load_gold_frame(session, start=start, end=end, channel=channel, account=account)
     profit = (
         summarize(gold, ["channel", "sku"]).select("channel", "sku", "net_profit", "margin")
         if gold.height
@@ -145,6 +162,7 @@ async def dayparting_report(
     start: date | None = None,
     end: date | None = None,
     channel: Channel | None = None,
+    account: str | None = None,
 ) -> dict:
     """Órdenes, unidades y ventas por día de la semana y hora (en la zona horaria del reporte)."""
     tz = ZoneInfo(tz_name)
@@ -165,6 +183,8 @@ async def dayparting_report(
         base = base.where(SalesOrder.order_date <= end)
     if channel:
         base = base.where(Account.channel_code == channel.value)
+    if account:
+        base = base.where(Account.name == account)
 
     cells: dict[tuple[int, int], dict[str, float]] = {}
     total = with_time = 0
@@ -218,6 +238,7 @@ async def returns_report(
     start: date | None = None,
     end: date | None = None,
     channel: Channel | None = None,
+    account: str | None = None,
 ) -> dict:
     """Devoluciones y cancelaciones: motivos, productos con más devoluciones y tasa de devolución."""
     query = (
@@ -231,6 +252,8 @@ async def returns_report(
         query = query.where(ReturnCase.case_date <= end)
     if channel:
         query = query.where(Account.channel_code == channel.value)
+    if account:
+        query = query.where(Account.name == account)
 
     cases: dict[int, ReturnCase] = {}
     lines: list[tuple[ReturnCase, ReturnCaseLine]] = []
@@ -254,6 +277,8 @@ async def returns_report(
         sold_q = sold_q.where(OrderLine.order_date <= end)
     if channel:
         sold_q = sold_q.where(Account.channel_code == channel.value)
+    if account:
+        sold_q = sold_q.where(Account.name == account)
     sold = {sku: int(units or 0) for sku, units in (await session.execute(sold_q)).all()}
 
     reasons: dict[tuple[str, str], dict] = {}
@@ -351,6 +376,7 @@ async def logistics_report(
     start: date | None = None,
     end: date | None = None,
     channel: Channel | None = None,
+    account: str | None = None,
     now: datetime | None = None,
 ) -> dict:
     """Tiempos de envío: manejo (pago -> listo), tránsito (recolección -> entrega) y puntualidad."""
@@ -362,6 +388,8 @@ async def logistics_report(
         query = query.where(Shipment.order_date <= end)
     if channel:
         query = query.where(Account.channel_code == channel.value)
+    if account:
+        query = query.where(Account.name == account)
 
     statuses: dict[str, int] = {}
     handling: list[float] = []
@@ -434,7 +462,11 @@ NO_CREATOR = "(sin creador identificado)"
 
 
 async def samples_report(
-    session: AsyncSession, start: date | None = None, end: date | None = None
+    session: AsyncSession,
+    start: date | None = None,
+    end: date | None = None,
+    channel: Channel | None = None,
+    account: str | None = None,
 ) -> dict:
     """ROI de las muestras: costo de lo enviado vs utilidad de las ventas del creador después.
 
@@ -445,6 +477,7 @@ async def samples_report(
     - Las órdenes de afiliado que aún no se liquidan no tienen utilidad calculable: se cuentan aparte.
     """
     costs = await load_cost_history(session)
+    ids = await _scope_ids(session, channel, account)
     product_ids = {sku: pid for sku, pid in (await session.execute(select(Product.sku, Product.id))).all()}
 
     # --- muestras enviadas
@@ -453,6 +486,8 @@ async def samples_report(
         line_q = line_q.where(SampleLine.order_date >= start)
     if end:
         line_q = line_q.where(SampleLine.order_date <= end)
+    if ids is not None:
+        line_q = line_q.where(SampleLine.account_id.in_(ids))
     sample_lines = (await session.scalars(line_q)).all()
     order_ids = sorted({line.external_order_id for line in sample_lines})
 
@@ -494,6 +529,8 @@ async def samples_report(
         aff_q = aff_q.where(AffiliateOrder.order_date >= start)
     if end:
         aff_q = aff_q.where(AffiliateOrder.order_date <= end)
+    if ids is not None:
+        aff_q = aff_q.where(AffiliateOrder.account_id.in_(ids))
     affiliate = (await session.scalars(aff_q)).all()
     aff_orders = sorted({a.external_order_id for a in affiliate})
     profits = await _profit_by_order(session, aff_orders, costs)
@@ -539,7 +576,10 @@ async def samples_report(
     with_sales = sum(1 for c in rows if c["affiliate_orders"] > 0)
 
     statuses: dict[str, int] = {}
-    for (status,) in (await session.execute(select(SampleApplication.status))).all():
+    status_q = select(SampleApplication.status)
+    if ids is not None:
+        status_q = status_q.where(SampleApplication.account_id.in_(ids))
+    for (status,) in (await session.execute(status_q)).all():
         statuses[status or "(sin estado)"] = statuses.get(status or "(sin estado)", 0) + 1
 
     return {
@@ -644,7 +684,11 @@ FUNNEL_SOURCES = ("VIDEO", "LIVE", "PRODUCT_CARD")
 
 
 async def funnel_report(
-    session: AsyncSession, start: date | None = None, end: date | None = None
+    session: AsyncSession,
+    start: date | None = None,
+    end: date | None = None,
+    channel: Channel | None = None,
+    account: str | None = None,
 ) -> dict:
     """Embudo: impresiones -> vistas de producto -> compradores/órdenes, por origen y por día.
 
@@ -656,6 +700,9 @@ async def funnel_report(
         query = query.where(TrafficDaily.day >= start)
     if end:
         query = query.where(TrafficDaily.day <= end)
+    ids = await _scope_ids(session, channel, account)
+    if ids is not None:
+        query = query.where(TrafficDaily.account_id.in_(ids))
     rows = (await session.scalars(query.order_by(TrafficDaily.day))).all()
 
     def blank() -> dict:
@@ -705,11 +752,19 @@ async def funnel_report(
 
 # ---------------------------------------------------------------- LIVE
 async def live_report(
-    session: AsyncSession, start: date | None = None, end: date | None = None
+    session: AsyncSession,
+    start: date | None = None,
+    end: date | None = None,
+    channel: Channel | None = None,
+    account: str | None = None,
 ) -> dict:
     """Sesiones LIVE: ventas, duración, ventas por hora y los creadores que más venden."""
     sessions = []
-    for s in (await session.scalars(select(LiveSession))).all():
+    live_q = select(LiveSession)
+    ids = await _scope_ids(session, channel, account)
+    if ids is not None:
+        live_q = live_q.where(LiveSession.account_id.in_(ids))
+    for s in (await session.scalars(live_q)).all():
         started = _aware(s.start_at)
         if started is None:
             continue
@@ -772,7 +827,11 @@ CREATIVES_LIMIT = 200
 
 
 async def creatives_report(
-    session: AsyncSession, start: date | None = None, end: date | None = None
+    session: AsyncSession,
+    start: date | None = None,
+    end: date | None = None,
+    channel: Channel | None = None,
+    account: str | None = None,
 ) -> dict:
     """Ventas y utilidad por contenido de creador (video, LIVE, enlace, tienda).
 
@@ -786,6 +845,9 @@ async def creatives_report(
         query = query.where(AffiliateOrder.order_date >= start)
     if end:
         query = query.where(AffiliateOrder.order_date <= end)
+    ids = await _scope_ids(session, channel, account)
+    if ids is not None:
+        query = query.where(AffiliateOrder.account_id.in_(ids))
     rows = (await session.scalars(query)).all()
     profits = await _profit_by_order(session, sorted({r.external_order_id for r in rows}), costs)
     sampled = {
@@ -901,7 +963,11 @@ async def creatives_report(
 
 # ---------------------------------------------------------------- flujo de caja
 async def cashflow_report(
-    session: AsyncSession, start: date | None = None, end: date | None = None
+    session: AsyncSession,
+    start: date | None = None,
+    end: date | None = None,
+    channel: Channel | None = None,
+    account: str | None = None,
 ) -> dict:
     """Liquidaciones cobradas y por cobrar. Una por estado de cuenta de la plataforma."""
     query = (
@@ -913,6 +979,10 @@ async def cashflow_report(
         query = query.where(Settlement.statement_date >= start)
     if end:
         query = query.where(Settlement.statement_date <= end)
+    if channel:
+        query = query.where(Account.channel_code == channel.value)
+    if account:
+        query = query.where(Account.name == account)
 
     rows = [
         {

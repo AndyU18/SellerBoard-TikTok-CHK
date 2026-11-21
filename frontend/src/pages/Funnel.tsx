@@ -14,7 +14,9 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { ChannelOnlyNotice } from '@/components/ScopeBar'
 import { api, type Filters } from '@/lib/api'
+import { useScope } from '@/lib/scope'
 import { count, money, percent, presetRange, type Preset } from '@/lib/format'
 import { useAsync } from '@/lib/useAsync'
 
@@ -42,7 +44,11 @@ function Kpi({ title, value, hint }: { title: string; value: string; hint?: stri
 
 export function Funnel() {
   const [preset, setPreset] = useState<Preset>('30d')
-  const filters = useMemo<Filters>(() => presetRange(preset), [preset])
+  const scope = useScope()
+  const filters = useMemo<Filters>(
+    () => ({ ...presetRange(preset), channel: scope.channelParam, account: scope.account }),
+    [preset, scope.channelParam, scope.account],
+  )
   const data = useAsync(() => api.funnel(filters), [filters])
 
   const t = data.data?.totals
@@ -72,6 +78,8 @@ export function Funnel() {
           </SelectContent>
         </Select>
       </div>
+
+      <ChannelOnlyNotice channels={['tiktok_shop']} what="El embudo de tráfico" />
 
       {data.error && (
         <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">

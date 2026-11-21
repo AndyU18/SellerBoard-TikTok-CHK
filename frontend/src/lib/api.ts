@@ -335,6 +335,14 @@ export interface Filters {
   start?: string
   end?: string
   channel?: Channel | ''
+  /** Nombre de la tienda (cuenta); vacío = todas. */
+  account?: string
+}
+
+export interface AccountRow {
+  id: number
+  channel: Channel
+  name: string
 }
 
 export interface ImportResult {
@@ -391,43 +399,44 @@ async function parse<T>(res: Response): Promise<T> {
 
 export const api = {
   profit: (groupBy: GroupBy, f: Filters) =>
-    authFetch(`/api/profit${query({ group_by: groupBy, start: f.start, end: f.end, channel: f.channel })}`).then(
+    authFetch(`/api/profit${query({ group_by: groupBy, start: f.start, end: f.end, channel: f.channel, account: f.account })}`).then(
       (r) => parse<ProfitResponse>(r),
     ),
   timeseries: (interval: 'day' | 'month', f: Filters) =>
     authFetch(
-      `/api/profit/timeseries${query({ interval, start: f.start, end: f.end, channel: f.channel })}`,
+      `/api/profit/timeseries${query({ interval, start: f.start, end: f.end, channel: f.channel, account: f.account })}`,
     ).then((r) => parse<{ interval: string; rows: ProfitRow[] }>(r)),
   pareto: (metric: 'profit' | 'sales', f: Filters) =>
-    authFetch(`/api/profit/pareto${query({ metric, start: f.start, end: f.end, channel: f.channel })}`).then((r) =>
+    authFetch(`/api/profit/pareto${query({ metric, start: f.start, end: f.end, channel: f.channel, account: f.account })}`).then((r) =>
       parse<ParetoResponse>(r),
     ),
   promotions: (f: Filters) =>
-    authFetch(`/api/promotions${query({ start: f.start, end: f.end, channel: f.channel })}`).then((r) =>
+    authFetch(`/api/promotions${query({ start: f.start, end: f.end, channel: f.channel, account: f.account })}`).then((r) =>
       parse<PromotionsResponse>(r),
     ),
   dayparting: (f: Filters) =>
-    authFetch(`/api/dayparting${query({ start: f.start, end: f.end, channel: f.channel })}`).then((r) =>
+    authFetch(`/api/dayparting${query({ start: f.start, end: f.end, channel: f.channel, account: f.account })}`).then((r) =>
       parse<DaypartingResponse>(r),
     ),
   returns: (f: Filters) =>
-    authFetch(`/api/returns${query({ start: f.start, end: f.end, channel: f.channel })}`).then((r) =>
+    authFetch(`/api/returns${query({ start: f.start, end: f.end, channel: f.channel, account: f.account })}`).then((r) =>
       parse<ReturnsResponse>(r),
     ),
   logistics: (f: Filters) =>
-    authFetch(`/api/logistics${query({ start: f.start, end: f.end, channel: f.channel })}`).then((r) =>
+    authFetch(`/api/logistics${query({ start: f.start, end: f.end, channel: f.channel, account: f.account })}`).then((r) =>
       parse<LogisticsResponse>(r),
     ),
   samples: (f: Filters) =>
-    authFetch(`/api/samples${query({ start: f.start, end: f.end })}`).then((r) => parse<SamplesResponse>(r)),
+    authFetch(`/api/samples${query({ start: f.start, end: f.end, channel: f.channel, account: f.account })}`).then((r) => parse<SamplesResponse>(r)),
   funnel: (f: Filters) =>
-    authFetch(`/api/funnel${query({ start: f.start, end: f.end })}`).then((r) => parse<FunnelResponse>(r)),
+    authFetch(`/api/funnel${query({ start: f.start, end: f.end, channel: f.channel, account: f.account })}`).then((r) => parse<FunnelResponse>(r)),
   live: (f: Filters) =>
-    authFetch(`/api/live${query({ start: f.start, end: f.end })}`).then((r) => parse<LiveResponse>(r)),
+    authFetch(`/api/live${query({ start: f.start, end: f.end, channel: f.channel, account: f.account })}`).then((r) => parse<LiveResponse>(r)),
   creatives: (f: Filters) =>
-    authFetch(`/api/creatives${query({ start: f.start, end: f.end })}`).then((r) => parse<CreativesResponse>(r)),
+    authFetch(`/api/creatives${query({ start: f.start, end: f.end, channel: f.channel, account: f.account })}`).then((r) => parse<CreativesResponse>(r)),
   cashflow: (f: Filters) =>
-    authFetch(`/api/cashflow${query({ start: f.start, end: f.end })}`).then((r) => parse<CashflowResponse>(r)),
+    authFetch(`/api/cashflow${query({ start: f.start, end: f.end, channel: f.channel, account: f.account })}`).then((r) => parse<CashflowResponse>(r)),
+  accounts: () => authFetch('/api/accounts').then((r) => parse<AccountRow[]>(r)),
   products: () => authFetch('/api/products').then((r) => parse<Product[]>(r)),
   cogsHistory: (id: number) =>
     authFetch(`/api/products/${id}/cogs-history`).then((r) => parse<CostHistoryEntry[]>(r)),

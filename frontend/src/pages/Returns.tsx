@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 
-import { FilterBar, type ChannelFilter } from '@/components/FilterBar'
+import { ChannelOnlyNotice } from '@/components/ScopeBar'
+import { FilterBar } from '@/components/FilterBar'
+import { useScope } from '@/lib/scope'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { api, type Filters } from '@/lib/api'
@@ -34,10 +36,10 @@ function Kpi({ title, value, hint, className = '' }: { title: string; value: str
 
 export function Returns() {
   const [preset, setPreset] = useState<Preset>('90d')
-  const [channel, setChannel] = useState<ChannelFilter>('all')
+  const scope = useScope()
   const filters = useMemo<Filters>(
-    () => ({ ...presetRange(preset), channel: channel === 'all' ? '' : channel }),
-    [preset, channel],
+    () => ({ ...presetRange(preset), channel: scope.channelParam, account: scope.account }),
+    [preset, scope.channelParam, scope.account],
   )
   const data = useAsync(() => api.returns(filters), [filters])
   const sm = data.data?.summary
@@ -50,8 +52,9 @@ export function Returns() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Devoluciones y cancelaciones (RMA)</h1>
-        <FilterBar preset={preset} onPreset={setPreset} channel={channel} onChannel={setChannel} />
+        <FilterBar preset={preset} onPreset={setPreset} />
       </div>
+      <ChannelOnlyNotice channels={['tiktok_shop']} what="Devoluciones y cancelaciones" />
 
       {data.error && (
         <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">

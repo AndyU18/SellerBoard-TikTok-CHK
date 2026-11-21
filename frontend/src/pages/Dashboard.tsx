@@ -12,7 +12,8 @@ import {
 } from 'recharts'
 
 import { ChannelBadge } from '@/components/ChannelBadge'
-import { FilterBar, type ChannelFilter } from '@/components/FilterBar'
+import { FilterBar } from '@/components/FilterBar'
+import { useScope } from '@/lib/scope'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { api, CHANNEL_COLOR, CHANNEL_LABEL, CHANNELS, type Filters, type ProfitRow } from '@/lib/api'
 import { change, count, money, neg, percent, presetRange, previousRange, tone, type Preset } from '@/lib/format'
@@ -119,11 +120,11 @@ const PL_LINES: PlLine[] = [
 
 export function Dashboard() {
   const [preset, setPreset] = useState<Preset>('90d')
-  const [channel, setChannel] = useState<ChannelFilter>('all')
+  const scope = useScope()
 
   const filters = useMemo<Filters>(
-    () => ({ ...presetRange(preset), channel: channel === 'all' ? '' : channel }),
-    [preset, channel],
+    () => ({ ...presetRange(preset), channel: scope.channelParam, account: scope.account }),
+    [preset, scope.channelParam, scope.account],
   )
   const interval = preset === '30d' ? 'day' : 'month'
 
@@ -132,8 +133,8 @@ export function Dashboard() {
   const byProduct = useAsync(() => api.profit('product', filters), [filters])
   const previous = useAsync(async () => {
     const range = previousRange(preset)
-    return range ? api.profit('channel', { ...range, channel: filters.channel }) : null
-  }, [preset, filters.channel])
+    return range ? api.profit('channel', { ...range, channel: filters.channel, account: filters.account }) : null
+  }, [preset, filters.channel, filters.account])
 
   const productRows = byProduct.data?.rows ?? []
   const topProducts = [...productRows].sort((a, b) => b.net_profit - a.net_profit).slice(0, 5)
@@ -163,7 +164,7 @@ export function Dashboard() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Resumen ejecutivo</h1>
-        <FilterBar preset={preset} onPreset={setPreset} channel={channel} onChannel={setChannel} />
+        <FilterBar preset={preset} onPreset={setPreset} />
       </div>
 
       {error && (

@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 
-import { FilterBar, type ChannelFilter } from '@/components/FilterBar'
+import { FilterBar } from '@/components/FilterBar'
+import { useScope } from '@/lib/scope'
 import { ProfitTable, type CogsInfo } from '@/components/ProfitTable'
 import { Card, CardContent } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -18,13 +19,13 @@ const VIEWS: { value: GroupBy; label: string }[] = [
 export function Products() {
   const [groupBy, setGroupBy] = useState<GroupBy>('channel_product')
   const [preset, setPreset] = useState<Preset>('90d')
-  const [channel, setChannel] = useState<ChannelFilter>('all')
+  const scope = useScope()
   const [version, setVersion] = useState(0)
   const [saveError, setSaveError] = useState<string | null>(null)
 
   const filters = useMemo<Filters>(
-    () => ({ ...presetRange(preset), channel: channel === 'all' ? '' : channel }),
-    [preset, channel],
+    () => ({ ...presetRange(preset), channel: scope.channelParam, account: scope.account }),
+    [preset, scope.channelParam, scope.account],
   )
 
   const profit = useAsync(() => api.profit(groupBy, filters), [groupBy, filters, version])
@@ -50,7 +51,7 @@ export function Products() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Productos</h1>
-        <FilterBar preset={preset} onPreset={setPreset} channel={channel} onChannel={setChannel} />
+        <FilterBar preset={preset} onPreset={setPreset} />
       </div>
 
       <Tabs value={groupBy} onValueChange={(v) => setGroupBy(v as GroupBy)}>

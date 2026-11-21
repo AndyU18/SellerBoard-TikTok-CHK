@@ -5,7 +5,9 @@ import { ChannelBadge } from '@/components/ChannelBadge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { ChannelOnlyNotice } from '@/components/ScopeBar'
 import { api, type Filters } from '@/lib/api'
+import { useScope } from '@/lib/scope'
 import { count, money, PRESETS, presetRange, tone, type Preset } from '@/lib/format'
 import { useAsync } from '@/lib/useAsync'
 
@@ -31,7 +33,11 @@ function Kpi({ title, value, hint, className = '' }: { title: string; value: str
 
 export function Cashflow() {
   const [preset, setPreset] = useState<Preset>('90d')
-  const filters = useMemo<Filters>(() => presetRange(preset), [preset])
+  const scope = useScope()
+  const filters = useMemo<Filters>(
+    () => ({ ...presetRange(preset), channel: scope.channelParam, account: scope.account }),
+    [preset, scope.channelParam, scope.account],
+  )
   const data = useAsync(() => api.cashflow(filters), [filters])
 
   const summary = data.data?.summary
@@ -54,6 +60,8 @@ export function Cashflow() {
           </SelectContent>
         </Select>
       </div>
+
+      <ChannelOnlyNotice channels={['tiktok_shop']} what="Las liquidaciones" />
 
       {data.error && (
         <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">

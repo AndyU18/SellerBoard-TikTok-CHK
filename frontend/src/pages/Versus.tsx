@@ -1,16 +1,25 @@
 import { useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
-import { FilterBar, type ChannelFilter } from '@/components/FilterBar'
+import { FilterBar } from '@/components/FilterBar'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { api, CHANNEL_LABEL, type Channel, type Filters, type ProfitRow } from '@/lib/api'
+import { api, CHANNEL_LABEL, type Channel, type Filters, type GroupBy, type ProfitRow } from '@/lib/api'
 import { count, money, percent, presetRange, previousRange, tone, type Preset } from '@/lib/format'
+import { useScope } from '@/lib/scope'
 import { useAsync } from '@/lib/useAsync'
 
-type Mode = 'channel' | 'product' | 'period'
+type Mode = 'channel' | 'account' | 'product' | 'sku_channels' | 'period'
+
+const MODES: { value: Mode; label: string }[] = [
+  { value: 'channel', label: 'Canal vs canal' },
+  { value: 'account', label: 'Tienda vs tienda' },
+  { value: 'product', label: 'Producto vs producto' },
+  { value: 'sku_channels', label: 'Mismo producto en dos canales' },
+  { value: 'period', label: 'Periodo vs periodo anterior' },
+]
 
 interface Metric {
   key: keyof ProfitRow
@@ -23,6 +32,7 @@ interface Metric {
 const METRICS: Metric[] = [
   { key: 'gross_sales', label: 'Ventas', fmt: money, better: 'high' },
   { key: 'units', label: 'Unidades', fmt: count, better: 'high' },
+  { key: 'promo', label: 'Promociones', fmt: money, better: null },
   { key: 'platform_fees', label: 'Comisiones', fmt: money, better: null },
   { key: 'shipping_cost', label: 'Envío', fmt: money, better: null },
   { key: 'ad_spend', label: 'Publicidad', fmt: money, better: null },
@@ -42,25 +52,38 @@ function num(row: ProfitRow | null | undefined, key: keyof ProfitRow): number | 
   return typeof v === 'number' ? v : null
 }
 
+/** Qué consulta pide cada modo (el periodo usa su propia consulta). */
+const GROUP_BY: Record<Exclude<Mode, 'period'>, GroupBy> = {
+  channel: 'channel',
+  account: 'account',
+  product: 'product',
+  sku_channels: 'channel_product',
+}
+
 export function Versus() {
+  const scope = useScope()
   const [mode, setMode] = useState<Mode>('channel')
   const [preset, setPreset] = useState<Preset>('90d')
-  const [channel, setChannel] = useState<ChannelFilter>('all')
   const [pickA, setPickA] = useState('')
   const [pickB, setPickB] = useState('')
+  const [pickSku, setPickSku] = useState('')
 
-  const channelFilter = channel === 'all' ? '' : channel
-  const filters = useMemo<Filters>(() => ({ ...presetRange(preset), channel: channelFilter }), [preset, channelFilter])
+  const filters = useMemo<Filters>(
+    () => ({ ...presetRange(preset), channel: scope.channelParam, account: scope.account }),
+    [preset, scope.channelParam, scope.account],
+  )
   const prevRange = previousRange(preset)
 
-  // Canal vs canal y producto vs producto: una sola consulta; periodo vs periodo: dos totales.
-  const groupBy = mode === 'channel' ? 'channel' : 'product'
+  // Canal vs canal y mismo producto en dos canales miran todos los canales; tienda vs tienda respeta el canal elegido.
+  const entityFilters = useMemo<Filters>(() => {
+    if (mode === 'channel' || mode === 'sku_channels') return { ...filters, channel: '', account: '' }
+    if (mode === 'account') return { ...filters, account: '' }
+    return filters
+  }, [mode, filters])
+
   const entities = useAsync(
-    () =>
-      mode === 'period'
-        ? Promise.resolve(null)
-        : api.profit(groupBy, mode === 'channel' ? { ...filters, channel: '' } : filters),
-    [mode, groupBy, filters],
+    () => (mode === 'period' ? Promise.resolve(null) : api.profit(GROUP_BY[mode], entityFilters)),
+    [mode, entityFilters],
   )
   const periodA = useAsync(
     () => (mode === 'period' ? api.profit('channel', filters) : Promise.resolve(null)),
@@ -69,19 +92,49 @@ export function Versus() {
   const periodB = useAsync(
     () =>
       mode === 'period' && prevRange
-        ? api.profit('channel', { ...prevRange, channel: channelFilter })
+        ? api.profit('channel', { ...prevRange, channel: filters.channel, account: filters.account })
         : Promise.resolve(null),
-    [mode, preset, channelFilter],
+    [mode, preset, filters.channel, filters.account],
   )
 
-  const idOf = (r: ProfitRow) => (mode === 'channel' ? (r.channel ?? '') : (r.sku ?? ''))
-  const labelOf = (r: ProfitRow) =>
-    mode === 'channel' ? (CHANNEL_LABEL[r.channel as Channel] ?? r.channel ?? '') : (r.product_name ?? r.sku ?? '')
+  const allRows = useMemo(() => entities.data?.rows ?? [], [entities.data])
 
-  const sorted = useMemo(
-    () => [...(entities.data?.rows ?? [])].sort((x, y) => y.gross_sales - x.gross_sales),
-    [entities.data],
+  // Mismo producto en dos canales: se elige un SKU y las opciones son los canales donde se vendió.
+  const skuOptions = useMemo(() => {
+    const totals = new Map<string, { label: string; sales: number; channels: number }>()
+    for (const r of allRows) {
+      if (!r.sku) continue
+      const t = totals.get(r.sku) ?? { label: r.product_name ?? r.sku, sales: 0, channels: 0 }
+      t.sales += r.gross_sales
+      t.channels += 1
+      totals.set(r.sku, t)
+    }
+    return [...totals.entries()]
+      .sort((x, y) => y[1].channels - x[1].channels || y[1].sales - x[1].sales)
+      .map(([skuId, t]) => ({
+        value: skuId,
+        label: `${t.label} (${t.channels} ${t.channels === 1 ? 'canal' : 'canales'})`,
+      }))
+  }, [allRows])
+  const sku = skuOptions.some((o) => o.value === pickSku) ? pickSku : (skuOptions[0]?.value ?? '')
+
+  const rows = useMemo(
+    () => (mode === 'sku_channels' ? allRows.filter((r) => r.sku === sku) : allRows),
+    [mode, allRows, sku],
   )
+
+  const idOf = (r: ProfitRow) => {
+    if (mode === 'channel' || mode === 'sku_channels') return r.channel ?? ''
+    if (mode === 'account') return `${r.channel}|${r.account}`
+    return r.sku ?? ''
+  }
+  const labelOf = (r: ProfitRow) => {
+    if (mode === 'channel' || mode === 'sku_channels') return CHANNEL_LABEL[r.channel as Channel] ?? r.channel ?? ''
+    if (mode === 'account') return `${CHANNEL_LABEL[r.channel as Channel] ?? r.channel} · ${r.account}`
+    return r.product_name ?? r.sku ?? ''
+  }
+
+  const sorted = useMemo(() => [...rows].sort((x, y) => y.gross_sales - x.gross_sales), [rows])
   const options = sorted.map((r) => ({ value: idOf(r), label: labelOf(r) }))
   // Si no eligieron (o cambió el modo), se comparan los dos de mayores ventas.
   const a = options.some((o) => o.value === pickA) ? pickA : (options[0]?.value ?? '')
@@ -103,21 +156,43 @@ export function Versus() {
     { name: 'Utilidad neta', key: 'net_profit' as const },
   ].map((m) => ({ name: m.name, A: num(rowA, m.key) ?? 0, B: num(rowB, m.key) ?? 0 }))
 
+  const ignoresScope = mode === 'channel' || mode === 'sku_channels'
+  const scopeName = scope.account || (scope.channel === 'all' ? 'todos los canales' : CHANNEL_LABEL[scope.channel])
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Comparativa head-to-head</h1>
-        <FilterBar preset={preset} onPreset={setPreset} channel={channel} onChannel={setChannel} />
+        <FilterBar preset={preset} onPreset={setPreset} />
       </div>
 
       <div className="flex flex-wrap items-center gap-4">
         <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)}>
           <TabsList>
-            <TabsTrigger value="channel">Canal vs canal</TabsTrigger>
-            <TabsTrigger value="product">Producto vs producto</TabsTrigger>
-            <TabsTrigger value="period">Periodo vs periodo anterior</TabsTrigger>
+            {MODES.map((m) => (
+              <TabsTrigger key={m.value} value={m.value}>
+                {m.label}
+              </TabsTrigger>
+            ))}
           </TabsList>
         </Tabs>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-4">
+        {mode === 'sku_channels' && skuOptions.length > 0 && (
+          <Select items={skuOptions} value={sku} onValueChange={(v) => v && setPickSku(v)}>
+            <SelectTrigger className="w-80" aria-label="Producto">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {skuOptions.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         {mode !== 'period' && options.length > 0 && (
           <div className="flex items-center gap-2">
             <Select items={options} value={a} onValueChange={(v) => v && setPickA(v)}>
@@ -161,14 +236,24 @@ export function Versus() {
           Elige un periodo distinto de “Todo” para compararlo con el anterior de la misma duración.
         </p>
       )}
-      {mode === 'channel' && channel !== 'all' && (
+      {ignoresScope && (scope.channel !== 'all' || scope.account) && (
         <p className="text-muted-foreground text-sm">
-          En esta vista se comparan todos los canales; el filtro de canal no aplica.
+          En esta vista se comparan todos los canales; el filtro de canal y tienda de la barra superior no aplica.
+        </p>
+      )}
+      {(mode === 'product' || mode === 'account') && (
+        <p className="text-muted-foreground text-sm">
+          {mode === 'product'
+            ? `Compara dos productos dentro de ${scopeName}.`
+            : `Compara tiendas de ${scope.channel === 'all' ? 'todos los canales' : CHANNEL_LABEL[scope.channel]}.`}{' '}
+          Cambia el canal o la tienda arriba para verlos en otro lugar.
         </p>
       )}
       {mode !== 'period' && !loading && options.length < 2 && (
         <p className="text-muted-foreground text-sm">
-          Hacen falta al menos dos opciones con ventas en el periodo para comparar.
+          {mode === 'sku_channels'
+            ? 'Este producto solo se vendió en un canal en el periodo; elige otro producto.'
+            : 'Hacen falta al menos dos opciones con ventas en el periodo para comparar.'}
         </p>
       )}
 
