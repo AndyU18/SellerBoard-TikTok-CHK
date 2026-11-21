@@ -49,6 +49,7 @@ OUT_SCHEMA = {
     "platform_fees": pl.Float64,
     "shipping_cost": pl.Float64,
     "refund_amount": pl.Float64,
+    "ordered_at": pl.Datetime(time_zone="UTC"),
 }
 
 
@@ -223,7 +224,8 @@ def build_order_lines(
     for order in orders:
         stats["orders_seen"] += 1
         order_id = str(order["customerOrderId"])
-        day = datetime.fromtimestamp(int(order["orderDate"]) / 1000, tz=UTC).date()
+        ordered_at = datetime.fromtimestamp(int(order["orderDate"]) / 1000, tz=UTC)
+        day = ordered_at.date()
         lines: dict[str, dict[str, Any]] = {}
         for line in order.get("orderLines", {}).get("orderLine", []):
             if _line_status_cancelled(line):
@@ -282,6 +284,7 @@ def build_order_lines(
                     "platform_fees": max(fee, 0.0),
                     "shipping_cost": max(label, 0.0) * share,
                     "refund_amount": g["refund"],
+                    "ordered_at": ordered_at,
                 }
             )
     return pl.DataFrame(rows, schema=OUT_SCHEMA), stats

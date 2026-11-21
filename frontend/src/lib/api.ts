@@ -79,6 +79,77 @@ export interface ParetoResponse {
   summary: Partial<Record<AbcClass, { products: number; value: number }>>
 }
 
+export interface PromotionRow {
+  channel: Channel
+  sku: string
+  product_name: string | null
+  units: number
+  gross_sales: number
+  /** Descuento que paga el vendedor (ya resta de la utilidad). */
+  promo: number
+  /** Subsidio de la plataforma (no resta utilidad). */
+  platform_discount: number
+  list_amount: number
+  net_profit: number | null
+  margin: number | null
+  promo_rate: number | null
+  discount_depth: number | null
+  subsidy_share: number | null
+  loses_money: boolean
+  deep_discount: boolean
+}
+
+export interface PromotionTotals {
+  units: number
+  gross_sales: number
+  promo: number
+  platform_discount: number
+  list_amount: number
+  promo_rate: number | null
+  discount_depth: number | null
+  subsidy_share: number | null
+}
+
+export interface PromotionsResponse {
+  rows: PromotionRow[]
+  totals: PromotionTotals | null
+}
+
+export interface DaypartCell {
+  /** 0 = lunes … 6 = domingo. */
+  weekday: number
+  hour: number
+  orders: number
+  units: number
+  gross_sales: number
+}
+
+export interface DaypartingResponse {
+  timezone: string
+  coverage: { with_time: number; total: number }
+  cells: DaypartCell[]
+  best_hours: { hour: number; orders: number; units: number; gross_sales: number }[]
+}
+
+export interface SettlementRow {
+  channel: Channel
+  external_id: string
+  statement_date: string | null
+  payout_date: string | null
+  status: string | null
+  gross_amount: number
+  fees_amount: number
+  shipping_amount: number
+  adjustment_amount: number
+  net_payout: number
+}
+
+export interface CashflowResponse {
+  summary: { received: number; pending: number; failed: number; statements: number }
+  by_month: { month: string; received: number; pending: number }[]
+  rows: SettlementRow[]
+}
+
 export interface Filters {
   start?: string
   end?: string
@@ -150,6 +221,16 @@ export const api = {
     authFetch(`/api/profit/pareto${query({ metric, start: f.start, end: f.end, channel: f.channel })}`).then((r) =>
       parse<ParetoResponse>(r),
     ),
+  promotions: (f: Filters) =>
+    authFetch(`/api/promotions${query({ start: f.start, end: f.end, channel: f.channel })}`).then((r) =>
+      parse<PromotionsResponse>(r),
+    ),
+  dayparting: (f: Filters) =>
+    authFetch(`/api/dayparting${query({ start: f.start, end: f.end, channel: f.channel })}`).then((r) =>
+      parse<DaypartingResponse>(r),
+    ),
+  cashflow: (f: Filters) =>
+    authFetch(`/api/cashflow${query({ start: f.start, end: f.end })}`).then((r) => parse<CashflowResponse>(r)),
   products: () => authFetch('/api/products').then((r) => parse<Product[]>(r)),
   cogsHistory: (id: number) =>
     authFetch(`/api/products/${id}/cogs-history`).then((r) => parse<CostHistoryEntry[]>(r)),

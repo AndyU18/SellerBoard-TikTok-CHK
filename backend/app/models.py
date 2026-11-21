@@ -138,6 +138,7 @@ class SalesOrder(Base):
     account_id: Mapped[int] = mapped_column(ForeignKey("sales.account.id"))
     external_order_id: Mapped[str] = mapped_column(String)
     order_date: Mapped[date] = mapped_column(Date)
+    ordered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String, default="imported")
 
 
@@ -159,6 +160,28 @@ class OrderLine(Base):
     platform_fees: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
     shipping_cost: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
     refund_amount: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    # Subsidio de la plataforma (no resta utilidad) y venta a precio de lista (0 = desconocida).
+    platform_discount: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    list_amount: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+
+
+class Settlement(Base):
+    """Liquidación / pago de la plataforma (TikTok: estado de cuenta). Alimenta el flujo de caja."""
+
+    __tablename__ = "settlement"
+    __table_args__ = (UniqueConstraint("account_id", "external_id"), {"schema": "sales"})
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("sales.account.id"))
+    external_id: Mapped[str] = mapped_column(String)
+    statement_date: Mapped[date | None] = mapped_column(Date)
+    payout_date: Mapped[date | None] = mapped_column(Date)
+    status: Mapped[str | None] = mapped_column(String)
+    gross_amount: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    fees_amount: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    shipping_amount: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    adjustment_amount: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    net_payout: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
 
 
 class AdSpendDaily(Base):

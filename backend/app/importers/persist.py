@@ -45,6 +45,7 @@ def _dec(value: float) -> Decimal:
 
 
 CHUNK = 500  # tamaño de los IN (...) para no mandar listas enormes
+OPTIONAL_MONEY = ("platform_discount", "list_amount")  # columnas que solo traen los conectores
 
 
 def _chunks(items: list, size: int = CHUNK):
@@ -125,8 +126,11 @@ async def _load_orders(
     Devuelve también las fechas anteriores de las órdenes que cambian de día.
     """
     wanted: dict[int, dict[str, object]] = {}
+    stamps: dict[tuple[int, str], object] = {}
     for account, _, row in prepared:
         wanted.setdefault(account.id, {}).setdefault(row["order_id"], row["date"])
+        if row.get("ordered_at") is not None:
+            stamps[(account.id, row["order_id"])] = row["ordered_at"]
 
     orders: dict[tuple[int, str], SalesOrder] = {}
     old_dates: list[date] = []
@@ -149,6 +153,8 @@ async def _load_orders(
                 )
                 session.add(order)
                 orders[(account_id, external_id)] = order
+    for key, stamp in stamps.items():
+        orders[key].ordered_at = stamp  # type: ignore[assignment]
     await session.flush()
     return orders, old_dates
 
@@ -200,6 +206,11 @@ async def import_orders(session: AsyncSession, df: pl.DataFrame) -> ImportResult
     resolver = _Resolver(session, result)
 
     # Una misma orden+SKU repetida en el archivo se suma en una sola línea.
+    # Columnas opcionales (solo los conectores las traen): si faltan no se tocan en la base.
+    optional_money = [c for c in OPTIONAL_MONEY if c in df.columns]
+    extra = [pl.col(c).sum() for c in optional_money]
+    if "ordered_at" in df.columns:
+        extra.append(pl.col("ordered_at").min())
     lines = df.group_by(
         ["channel", "account", "order_id", "sku"], maintain_order=True
     ).agg(
@@ -211,6 +222,7 @@ async def import_orders(session: AsyncSession, df: pl.DataFrame) -> ImportResult
         pl.col("platform_fees").sum(),
         pl.col("shipping_cost").sum(),
         pl.col("refund_amount").sum(),
+        *extra,
     )
 
     prepared: list[tuple[Account, int, dict]] = []
@@ -241,6 +253,7 @@ async def import_orders(session: AsyncSession, df: pl.DataFrame) -> ImportResult
             "platform_fees": _dec(row["platform_fees"]),
             "shipping_cost": _dec(row["shipping_cost"]),
             "refund_amount": _dec(row["refund_amount"]),
+            **{c: _dec(row[c]) for c in optional_money},
         }
         if existing is None:
             session.add(

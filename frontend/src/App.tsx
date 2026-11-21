@@ -1,22 +1,48 @@
-import { BarChart3, Coins, GitCompareArrows, LayoutDashboard, LogOut, Package, Upload } from 'lucide-react'
+import {
+  BarChart3,
+  Banknote,
+  Clock,
+  Coins,
+  GitCompareArrows,
+  LayoutDashboard,
+  LogOut,
+  Package,
+  Tag,
+  Upload,
+} from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
+import { Cashflow } from '@/pages/Cashflow'
 import { Costs } from '@/pages/Costs'
 import { Dashboard } from '@/pages/Dashboard'
+import { Dayparting } from '@/pages/Dayparting'
 import { Import } from '@/pages/Import'
 import { Login } from '@/pages/Login'
 import { Pareto } from '@/pages/Pareto'
 import { Products } from '@/pages/Products'
+import { Promotions } from '@/pages/Promotions'
 import { Versus } from '@/pages/Versus'
 
-type Page = 'dashboard' | 'pareto' | 'versus' | 'products' | 'costs' | 'import'
+type Page =
+  | 'dashboard'
+  | 'pareto'
+  | 'versus'
+  | 'promotions'
+  | 'dayparting'
+  | 'cashflow'
+  | 'products'
+  | 'costs'
+  | 'import'
 
 const NAV: { id: Page; label: string; icon: ReactNode; permission: string }[] = [
   { id: 'dashboard', label: 'Resumen ejecutivo', icon: <LayoutDashboard className="size-4" />, permission: 'profit.view' },
   { id: 'pareto', label: 'Pareto ABC', icon: <BarChart3 className="size-4" />, permission: 'profit.view' },
   { id: 'versus', label: 'Versus', icon: <GitCompareArrows className="size-4" />, permission: 'profit.view' },
+  { id: 'promotions', label: 'Promociones', icon: <Tag className="size-4" />, permission: 'profit.view' },
+  { id: 'dayparting', label: 'Horas pico', icon: <Clock className="size-4" />, permission: 'profit.view' },
+  { id: 'cashflow', label: 'Flujo de caja', icon: <Banknote className="size-4" />, permission: 'profit.view' },
   { id: 'products', label: 'Productos', icon: <Package className="size-4" />, permission: 'catalog.view' },
   { id: 'costs', label: 'Costos (COGS)', icon: <Coins className="size-4" />, permission: 'catalog.view' },
   { id: 'import', label: 'Importar', icon: <Upload className="size-4" />, permission: 'import.run' },
@@ -117,6 +143,9 @@ export default function App() {
           {current === 'dashboard' && <Dashboard />}
           {current === 'pareto' && <Pareto />}
           {current === 'versus' && <Versus />}
+          {current === 'promotions' && <Promotions />}
+          {current === 'dayparting' && <Dayparting />}
+          {current === 'cashflow' && <Cashflow />}
           {current === 'products' && <Products />}
           {current === 'costs' && <Costs />}
           {current === 'import' && <Import />}

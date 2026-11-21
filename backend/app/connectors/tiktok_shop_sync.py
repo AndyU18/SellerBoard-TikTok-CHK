@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import polars as pl
@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.connectors.tiktok_shop import TikTokShopClient
 from app.importers.persist import ImportResult, import_orders
+from app.settlements import upsert_settlements
 
 CHANNEL = "tiktok_shop"
 DEFAULT_ACCOUNT = "tiktok_shop_us"
@@ -37,6 +38,9 @@ OUT_SCHEMA = {
     "platform_fees": pl.Float64,
     "shipping_cost": pl.Float64,
     "refund_amount": pl.Float64,
+    "platform_discount": pl.Float64,
+    "list_amount": pl.Float64,
+    "ordered_at": pl.Datetime(time_zone="UTC"),
 }
 
 
@@ -95,15 +99,24 @@ def build_order_lines(
         for item in order.get("line_items", []):
             sku = item.get("seller_sku") or item.get("sku_id") or "(sin sku)"
             g = groups.setdefault(
-                sku, {"units": 0, "weight": 0.0, "name": item.get("product_name")}
+                sku,
+                {
+                    "units": 0,
+                    "weight": 0.0,
+                    "platform": 0.0,
+                    "name": item.get("product_name"),
+                },
             )
             g["units"] += 1
             g["weight"] += _f(item.get("original_price"))
+            # El descuento de plataforma viene por unidad, así que no hace falta repartirlo.
+            g["platform"] += _f(item.get("platform_discount"))
         if not groups:
             continue
         total_weight = sum(g["weight"] for g in groups.values())
         total_units = sum(g["units"] for g in groups.values())
-        day = datetime.fromtimestamp(int(order["create_time"]), tz=UTC).date()
+        ordered_at = datetime.fromtimestamp(int(order["create_time"]), tz=UTC)
+        day = ordered_at.date()
 
         for sku, g in groups.items():
             share = (
@@ -123,9 +136,37 @@ def build_order_lines(
                     "platform_fees": abs(tx["fee_amount"]) * share,
                     "shipping_cost": abs(tx["shipping_cost_amount"]) * share,
                     "refund_amount": abs(tx["gross_sales_refund_amount"]) * share,
+                    "platform_discount": g["platform"],
+                    "list_amount": g["weight"],
+                    "ordered_at": ordered_at,
                 }
             )
     return pl.DataFrame(rows, schema=OUT_SCHEMA), stats
+
+
+def _epoch_date(value: Any) -> date | None:
+    try:
+        return datetime.fromtimestamp(int(value), tz=UTC).date()
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def build_settlements(statements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Estados de cuenta de TikTok -> filas de liquidación (montos como positivos, estado en minúscula)."""
+    return [
+        {
+            "external_id": str(s["id"]),
+            "statement_date": _epoch_date(s.get("statement_time")),
+            "payout_date": _epoch_date(s.get("payment_time")),
+            "status": str(s.get("payment_status") or "").lower() or None,
+            "gross_amount": _f(s.get("revenue_amount")),
+            "fees_amount": abs(_f(s.get("fee_amount"))),
+            "shipping_amount": abs(_f(s.get("shipping_cost_amount"))),
+            "adjustment_amount": _f(s.get("adjustment_amount")),
+            "net_payout": _f(s.get("settlement_amount")),
+        }
+        for s in statements
+    ]
 
 
 @dataclass
@@ -137,18 +178,19 @@ class SyncReport:
 
 def fetch_window(
     client: TikTokShopClient, days: int
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Órdenes creadas en la ventana y sus transacciones de liquidación."""
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Órdenes creadas en la ventana, sus transacciones de liquidación y los estados de cuenta."""
     end = datetime.now(UTC)
     start = end - timedelta(days=days)
     orders = list(client.iter_orders(start, end))
     window = {o["id"] for o in orders}
     transactions: list[dict[str, Any]] = []
-    for statement in client.iter_statements(start, end):
+    statements = list(client.iter_statements(start, end))
+    for statement in statements:
         for tx in client.iter_statement_transactions(statement["id"]):
             if tx.get("order_id") in window:
                 transactions.append(tx)
-    return orders, transactions
+    return orders, transactions, statements
 
 
 async def sync_tiktok_shop(
@@ -157,8 +199,11 @@ async def sync_tiktok_shop(
     days: int = 30,
     account: str = DEFAULT_ACCOUNT,
 ) -> SyncReport:
-    orders, transactions = await asyncio.to_thread(fetch_window, client, days)
+    orders, transactions, statements = await asyncio.to_thread(fetch_window, client, days)
     frame, stats = build_order_lines(orders, transactions, account)
     imported = await import_orders(session, frame) if frame.height else ImportResult()
+    stats["settlements"] = await upsert_settlements(
+        session, CHANNEL, account, build_settlements(statements)
+    )
     await session.commit()
     return SyncReport(days=days, stats=stats, imported=imported)

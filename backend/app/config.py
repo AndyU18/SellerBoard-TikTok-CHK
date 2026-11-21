@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # Solo para desarrollo local sin login: CHK_AUTH_REQUIRED=false da acceso total. NUNCA en producción.
     auth_required: bool = True
 
+    # Zona horaria para los reportes por hora (dayparting). Las horas se guardan en UTC.
+    report_timezone: str = "America/New_York"
+
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     max_upload_bytes: int = 20 * 1024 * 1024
 

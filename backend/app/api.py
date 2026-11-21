@@ -41,6 +41,7 @@ from app.models import (
     ProductCostHistory,
 )
 from app.profit import abc_classes, overall, summarize
+from app.reports import cashflow_report, dayparting_report, promotions_report
 
 router = APIRouter(prefix="/api")
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -245,6 +246,36 @@ async def profit_pareto(
         for key, g in ranked.partition_by("abc_class", as_dict=True, maintain_order=True).items()
     }
     return {"metric": metric, "rows": ranked.to_dicts(), "summary": summary}
+
+
+@router.get("/promotions", dependencies=[Depends(require("profit.view"))])
+async def promotions(
+    session: SessionDep,
+    start: date | None = None,
+    end: date | None = None,
+    channel: Channel | None = None,
+) -> dict:
+    """Auditoría de promociones: descuento del vendedor vs subsidio de la plataforma."""
+    return await promotions_report(session, start, end, channel)
+
+
+@router.get("/dayparting", dependencies=[Depends(require("profit.view"))])
+async def dayparting(
+    session: SessionDep,
+    start: date | None = None,
+    end: date | None = None,
+    channel: Channel | None = None,
+) -> dict:
+    """Órdenes y ventas por día de la semana y hora (zona horaria CHK_REPORT_TIMEZONE)."""
+    return await dayparting_report(session, settings.report_timezone, start, end, channel)
+
+
+@router.get("/cashflow", dependencies=[Depends(require("profit.view"))])
+async def cashflow(
+    session: SessionDep, start: date | None = None, end: date | None = None
+) -> dict:
+    """Liquidaciones de las plataformas: lo cobrado y lo que está por cobrar."""
+    return await cashflow_report(session, start, end)
 
 
 @router.post("/gold/refresh", dependencies=[Depends(require("sync.run", writes=True))])
