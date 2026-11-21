@@ -4,6 +4,7 @@ import {
   Clock,
   Coins,
   GitCompareArrows,
+  Gift,
   LayoutDashboard,
   LogOut,
   Package,
@@ -27,6 +28,7 @@ import { Pareto } from '@/pages/Pareto'
 import { Products } from '@/pages/Products'
 import { Promotions } from '@/pages/Promotions'
 import { Returns } from '@/pages/Returns'
+import { Samples } from '@/pages/Samples'
 import { Versus } from '@/pages/Versus'
 
 type Page =
@@ -38,6 +40,7 @@ type Page =
   | 'cashflow'
   | 'returns'
   | 'logistics'
+  | 'samples'
   | 'products'
   | 'costs'
   | 'import'
@@ -51,6 +54,7 @@ const NAV: { id: Page; label: string; icon: ReactNode; permission: string }[] = 
   { id: 'cashflow', label: 'Flujo de caja', icon: <Banknote className="size-4" />, permission: 'profit.view' },
   { id: 'returns', label: 'Devoluciones', icon: <Undo2 className="size-4" />, permission: 'profit.view' },
   { id: 'logistics', label: 'Logística', icon: <Truck className="size-4" />, permission: 'profit.view' },
+  { id: 'samples', label: 'Muestras', icon: <Gift className="size-4" />, permission: 'profit.view' },
   { id: 'products', label: 'Productos', icon: <Package className="size-4" />, permission: 'catalog.view' },
   { id: 'costs', label: 'Costos (COGS)', icon: <Coins className="size-4" />, permission: 'catalog.view' },
   { id: 'import', label: 'Importar', icon: <Upload className="size-4" />, permission: 'import.run' },
@@ -156,6 +160,7 @@ export default function App() {
           {current === 'cashflow' && <Cashflow />}
           {current === 'returns' && <Returns />}
           {current === 'logistics' && <Logistics />}
+          {current === 'samples' && <Samples />}
           {current === 'products' && <Products />}
           {current === 'costs' && <Costs />}
           {current === 'import' && <Import />}

@@ -203,6 +203,39 @@ export interface LogisticsResponse {
   by_carrier: { carrier: string; shipments: number; delivered: number; transit_days_avg: number | null }[]
 }
 
+export interface SamplesResponse {
+  summary: {
+    sample_orders: number
+    sample_units: number
+    creators: number
+    creators_with_sales: number
+    creators_without_sales: number
+    sample_cost: number
+    cost_not_in_profit: number
+    affiliate_profit: number
+    net: number
+    roi: number | null
+    orders_pending: number
+  }
+  creators: {
+    creator: string
+    sample_orders: number
+    sample_units: number
+    sample_cost: number
+    cost_not_in_profit: number
+    first_sample: string | null
+    affiliate_orders: number
+    affiliate_units: number
+    affiliate_gmv: number
+    commission: number
+    affiliate_profit: number
+    orders_pending: number
+    net: number
+    roi: number | null
+  }[]
+  applications_by_status: { status: string; applications: number }[]
+}
+
 export interface Filters {
   start?: string
   end?: string
@@ -290,6 +323,8 @@ export const api = {
     authFetch(`/api/logistics${query({ start: f.start, end: f.end, channel: f.channel })}`).then((r) =>
       parse<LogisticsResponse>(r),
     ),
+  samples: (f: Filters) =>
+    authFetch(`/api/samples${query({ start: f.start, end: f.end })}`).then((r) => parse<SamplesResponse>(r)),
   cashflow: (f: Filters) =>
     authFetch(`/api/cashflow${query({ start: f.start, end: f.end })}`).then((r) => parse<CashflowResponse>(r)),
   products: () => authFetch('/api/products').then((r) => parse<Product[]>(r)),

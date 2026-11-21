@@ -19,12 +19,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.connectors.tiktok_shop import TikTokShopClient
 from app.connectors.tiktok_shop_ops import (
+    build_affiliate_orders,
     build_return_cases,
+    build_sample_applications,
+    build_sample_lines,
     build_shipments,
     sku_by_order_line,
 )
 from app.importers.persist import ImportResult, import_orders
-from app.ops_data import upsert_return_cases, upsert_shipments
+from app.ops_data import (
+    upsert_affiliate_orders,
+    upsert_return_cases,
+    upsert_sample_applications,
+    upsert_sample_lines,
+    upsert_shipments,
+)
 from app.settlements import upsert_settlements
 
 CHANNEL = "tiktok_shop"
@@ -182,23 +191,36 @@ class SyncReport:
     imported: ImportResult = field(default_factory=ImportResult)
 
 
-def fetch_window(
-    client: TikTokShopClient, days: int
-) -> tuple[list[dict[str, Any]], ...]:
-    """Órdenes de la ventana, transacciones de liquidación, estados de cuenta, devoluciones y cancelaciones."""
+@dataclass
+class Window:
+    """Todo lo que se descarga de TikTok Shop en una sincronización."""
+
+    orders: list[dict[str, Any]] = field(default_factory=list)
+    transactions: list[dict[str, Any]] = field(default_factory=list)
+    statements: list[dict[str, Any]] = field(default_factory=list)
+    returns: list[dict[str, Any]] = field(default_factory=list)
+    cancellations: list[dict[str, Any]] = field(default_factory=list)
+    applications: list[dict[str, Any]] = field(default_factory=list)
+    affiliate_orders: list[dict[str, Any]] = field(default_factory=list)
+
+
+def fetch_window(client: TikTokShopClient, days: int) -> Window:
+    """Descarga órdenes, liquidaciones, devoluciones, muestras y ventas de afiliados de la ventana."""
     end = datetime.now(UTC)
     start = end - timedelta(days=days)
-    orders = list(client.iter_orders(start, end))
-    returns = list(client.iter_returns(start, end))
-    cancellations = list(client.iter_cancellations(start, end))
-    window = {o["id"] for o in orders}
-    transactions: list[dict[str, Any]] = []
-    statements = list(client.iter_statements(start, end))
-    for statement in statements:
+    w = Window()
+    w.orders = list(client.iter_orders(start, end))
+    w.returns = list(client.iter_returns(start, end))
+    w.cancellations = list(client.iter_cancellations(start, end))
+    w.applications = list(client.iter_sample_applications())
+    w.affiliate_orders = list(client.iter_affiliate_orders(start, end))
+    window = {o["id"] for o in w.orders}
+    w.statements = list(client.iter_statements(start, end))
+    for statement in w.statements:
         for tx in client.iter_statement_transactions(statement["id"]):
             if tx.get("order_id") in window:
-                transactions.append(tx)
-    return orders, transactions, statements, returns, cancellations
+                w.transactions.append(tx)
+    return w
 
 
 async def sync_tiktok_shop(
@@ -207,16 +229,23 @@ async def sync_tiktok_shop(
     days: int = 30,
     account: str = DEFAULT_ACCOUNT,
 ) -> SyncReport:
-    orders, transactions, statements, returns, cancellations = await asyncio.to_thread(
-        fetch_window, client, days
-    )
-    frame, stats = build_order_lines(orders, transactions, account)
+    w = await asyncio.to_thread(fetch_window, client, days)
+    frame, stats = build_order_lines(w.orders, w.transactions, account)
     imported = await import_orders(session, frame) if frame.height else ImportResult()
     stats["settlements"] = await upsert_settlements(
-        session, CHANNEL, account, build_settlements(statements)
+        session, CHANNEL, account, build_settlements(w.statements)
     )
-    cases = build_return_cases(returns, cancellations, sku_by_order_line(orders))
+    cases = build_return_cases(w.returns, w.cancellations, sku_by_order_line(w.orders))
     stats["return_cases"] = await upsert_return_cases(session, CHANNEL, account, cases)
-    stats["shipments"] = await upsert_shipments(session, CHANNEL, account, build_shipments(orders))
+    stats["shipments"] = await upsert_shipments(session, CHANNEL, account, build_shipments(w.orders))
+    stats["sample_lines"] = await upsert_sample_lines(
+        session, CHANNEL, account, build_sample_lines(w.orders)
+    )
+    stats["sample_applications"] = await upsert_sample_applications(
+        session, CHANNEL, account, build_sample_applications(w.applications)
+    )
+    stats["affiliate_orders"] = await upsert_affiliate_orders(
+        session, CHANNEL, account, build_affiliate_orders(w.affiliate_orders)
+    )
     await session.commit()
     return SyncReport(days=days, stats=stats, imported=imported)

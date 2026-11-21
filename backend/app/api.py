@@ -47,6 +47,7 @@ from app.reports import (
     logistics_report,
     promotions_report,
     returns_report,
+    samples_report,
 )
 
 router = APIRouter(prefix="/api")
@@ -296,6 +297,14 @@ async def logistics(
 ) -> dict:
     """Tiempos de envío, puntualidad y transportistas."""
     return await logistics_report(session, start, end, channel)
+
+
+@router.get("/samples", dependencies=[Depends(require("profit.view"))])
+async def samples(
+    session: SessionDep, start: date | None = None, end: date | None = None
+) -> dict:
+    """ROI de las muestras a creadores: costo enviado vs utilidad de sus ventas."""
+    return await samples_report(session, start, end)
 
 
 @router.get("/cashflow", dependencies=[Depends(require("profit.view"))])

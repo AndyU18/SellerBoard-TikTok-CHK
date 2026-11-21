@@ -115,6 +115,90 @@ def build_return_cases(
     return cases
 
 
+def _money(node: dict[str, Any] | None) -> float | None:
+    """{'amount': '5.65', 'currency': 'USD'} -> 5.65; {} -> None (aún no liquidado)."""
+    amount = (node or {}).get("amount")
+    return _f(amount) if amount not in (None, "") else None
+
+
+def build_sample_lines(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Productos enviados en las órdenes de muestra (no canceladas)."""
+    rows: dict[tuple[str, str], dict[str, Any]] = {}
+    for o in orders:
+        if not o.get("is_sample_order") or o.get("status") in {"CANCELLED", "UNPAID"}:
+            continue
+        created = _ts(o.get("create_time"))
+        if created is None:
+            continue
+        for item in o.get("line_items", []):
+            sku = item.get("seller_sku") or str(item.get("sku_id") or "(sin sku)")
+            row = rows.setdefault(
+                (str(o["id"]), sku),
+                {
+                    "external_order_id": str(o["id"]),
+                    "order_date": created.date(),
+                    "sku": sku,
+                    "product_name": item.get("product_name"),
+                    "units": 0,
+                },
+            )
+            row["units"] += 1
+    return list(rows.values())
+
+
+def build_sample_applications(apps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Solicitudes de muestra de creadores (embudo)."""
+    rows = []
+    for a in apps:
+        creator = a.get("creator") or {}
+        order_id = str(a.get("order_id") or "")
+        rows.append(
+            {
+                "external_id": str(a["id"]),
+                "creator_username": creator.get("username"),
+                "follower_count": creator.get("follower_count"),
+                "creator_gmv": _money(creator.get("gmv")),
+                "status": a.get("status"),
+                "external_order_id": order_id if order_id not in ("", "0") else None,
+                "product_title": (a.get("product") or {}).get("title"),
+                "commission_rate": _f(a.get("commission_rate")) if a.get("commission_rate") else None,
+            }
+        )
+    return rows
+
+
+def build_affiliate_orders(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Una fila por producto de cada orden atribuida a un creador."""
+    rows = []
+    for o in orders:
+        created = _ts(o.get("create_time"))
+        if created is None:
+            continue
+        for s in o.get("skus", []):
+            actual_commission = _money(s.get("actual_paid_commission"))
+            actual_base = _money(s.get("actual_commission_base"))
+            est_commission = _money(s.get("estimated_paid_commission"))
+            est_base = _money(s.get("estimated_commission_base"))
+            rate = _f(s.get("commission_rate")) / 10000  # TikTok lo manda en puntos base (1450 = 14.5%)
+            rows.append(
+                {
+                    "external_order_id": str(o["id"]),
+                    "sku_id": str(s.get("sku_id") or ""),
+                    "order_date": created.date(),
+                    "creator_username": s.get("creator_username"),
+                    "content_type": s.get("content_type"),
+                    "content_id": s.get("content_id"),
+                    "sku": s.get("seller_sku"),
+                    "units": int(_f(s.get("quantity")) or 1),
+                    "commission_base": actual_base if actual_base is not None else (est_base or 0.0),
+                    "commission": actual_commission if actual_commission is not None else (est_commission or 0.0),
+                    "commission_rate": rate or None,
+                    "settlement_status": s.get("settlement_status"),
+                }
+            )
+    return rows
+
+
 def build_shipments(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Una fila por orden con sus tiempos de envío."""
     rows: list[dict[str, Any]] = []

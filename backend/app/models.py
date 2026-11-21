@@ -242,6 +242,67 @@ class Shipment(Base):
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class SampleApplication(Base):
+    """Solicitud de muestra de un creador (embudo). Ver ..._creator_samples.sql."""
+
+    __tablename__ = "sample_application"
+    __table_args__ = (UniqueConstraint("account_id", "external_id"), {"schema": "sales"})
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("sales.account.id"))
+    external_id: Mapped[str] = mapped_column(String)
+    creator_username: Mapped[str | None] = mapped_column(String, index=True)
+    follower_count: Mapped[int | None]
+    creator_gmv: Mapped[Decimal | None] = mapped_column(Money)
+    status: Mapped[str | None] = mapped_column(String)
+    external_order_id: Mapped[str | None] = mapped_column(String, index=True)
+    product_title: Mapped[str | None] = mapped_column(String)
+    commission_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
+
+
+class SampleLine(Base):
+    """Producto enviado en una orden de muestra (para costearla aunque nunca se liquide)."""
+
+    __tablename__ = "sample_line"
+    __table_args__ = (
+        UniqueConstraint("account_id", "external_order_id", "sku"),
+        {"schema": "sales"},
+    )
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("sales.account.id"))
+    external_order_id: Mapped[str] = mapped_column(String)
+    order_date: Mapped[date] = mapped_column(Date, index=True)
+    sku: Mapped[str] = mapped_column(String)
+    product_name: Mapped[str | None] = mapped_column(String)
+    units: Mapped[int] = mapped_column(default=1)
+
+
+class AffiliateOrder(Base):
+    """Venta atribuida a un creador. La comisión ya está en platform_fees de la utilidad."""
+
+    __tablename__ = "affiliate_order"
+    __table_args__ = (
+        UniqueConstraint("account_id", "external_order_id", "sku_id"),
+        {"schema": "sales"},
+    )
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("sales.account.id"))
+    external_order_id: Mapped[str] = mapped_column(String, index=True)
+    sku_id: Mapped[str] = mapped_column(String)
+    order_date: Mapped[date] = mapped_column(Date, index=True)
+    creator_username: Mapped[str | None] = mapped_column(String, index=True)
+    content_type: Mapped[str | None] = mapped_column(String)
+    content_id: Mapped[str | None] = mapped_column(String)
+    sku: Mapped[str | None] = mapped_column(String)
+    units: Mapped[int] = mapped_column(default=1)
+    commission_base: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    commission: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    commission_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
+    settlement_status: Mapped[str | None] = mapped_column(String)
+
+
 class AdSpendDaily(Base):
     """Gasto publicitario diario (Amazon Ads, TikTok Ads, Walmart Connect)."""
 

@@ -13,7 +13,7 @@ import hmac
 import json
 import time
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -215,6 +215,36 @@ class TikTokShopClient:
             {"page_size": 50},
             {"update_time_ge": int(start.timestamp()), "update_time_lt": int(end.timestamp())},
         )
+
+    def iter_sample_applications(self) -> Iterator[dict[str, Any]]:
+        """Todas las solicitudes de muestra de creadores (lectura)."""
+        yield from self._paginate(
+            "POST",
+            "/affiliate_seller/202508/sample_applications/search",
+            "sample_applications",
+            {"page_size": 50},
+            {},
+        )
+
+    def iter_affiliate_orders(
+        self, start: datetime, end: datetime
+    ) -> Iterator[dict[str, Any]]:
+        """Órdenes atribuidas a creadores, creadas en la ventana (lectura).
+
+        TikTok limita cada consulta a 3 meses, así que la ventana se parte en tramos de 80 días.
+        """
+        chunk = timedelta(days=80)
+        cursor = start
+        while cursor < end:
+            upper = min(cursor + chunk, end)
+            yield from self._paginate(
+                "POST",
+                "/affiliate_seller/202410/orders/search",
+                "orders",
+                {"page_size": 50},
+                {"create_time_ge": int(cursor.timestamp()), "create_time_lt": int(upper.timestamp())},
+            )
+            cursor = upper
 
     def iter_statements(
         self, start: datetime, end: datetime

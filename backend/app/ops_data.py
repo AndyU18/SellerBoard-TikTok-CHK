@@ -12,7 +12,15 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Account, ReturnCase, ReturnCaseLine, Shipment
+from app.models import (
+    Account,
+    AffiliateOrder,
+    ReturnCase,
+    ReturnCaseLine,
+    SampleApplication,
+    SampleLine,
+    Shipment,
+)
 
 CHUNK = 500
 CASE_FIELDS = (
@@ -121,3 +129,69 @@ async def upsert_shipments(
             setattr(shipment, field, row[field])
     await session.flush()
     return len(rows)
+
+
+def _decimal_or_none(value: Any) -> Decimal | None:
+    return None if value is None else _dec(value)
+
+
+async def _upsert_keyed(
+    session: AsyncSession,
+    model: Any,
+    account: Account,
+    key: tuple[str, ...],
+    rows: list[dict[str, Any]],
+    money: tuple[str, ...] = (),
+) -> int:
+    """Upsert genérico: `key` son las columnas que identifican la fila dentro de la cuenta."""
+    existing = {
+        tuple(getattr(r, k) for k in key): r
+        for r in await session.scalars(select(model).where(model.account_id == account.id))
+    }
+    for row in rows:
+        values = {k: (_decimal_or_none(v) if k in money else v) for k, v in row.items()}
+        found = existing.get(tuple(row[k] for k in key))
+        if found is None:
+            found = model(account_id=account.id)
+            session.add(found)
+            existing[tuple(row[k] for k in key)] = found
+        for k, v in values.items():
+            setattr(found, k, v)
+    await session.flush()
+    return len(rows)
+
+
+async def upsert_sample_applications(
+    session: AsyncSession, channel: str, account_name: str, rows: list[dict[str, Any]]
+) -> int:
+    if not rows:
+        return 0
+    account = await ensure_account(session, channel, account_name)
+    return await _upsert_keyed(
+        session, SampleApplication, account, ("external_id",), rows, ("creator_gmv", "commission_rate")
+    )
+
+
+async def upsert_sample_lines(
+    session: AsyncSession, channel: str, account_name: str, rows: list[dict[str, Any]]
+) -> int:
+    if not rows:
+        return 0
+    account = await ensure_account(session, channel, account_name)
+    return await _upsert_keyed(session, SampleLine, account, ("external_order_id", "sku"), rows)
+
+
+async def upsert_affiliate_orders(
+    session: AsyncSession, channel: str, account_name: str, rows: list[dict[str, Any]]
+) -> int:
+    if not rows:
+        return 0
+    account = await ensure_account(session, channel, account_name)
+    return await _upsert_keyed(
+        session,
+        AffiliateOrder,
+        account,
+        ("external_order_id", "sku_id"),
+        rows,
+        ("commission_base", "commission", "commission_rate"),
+    )

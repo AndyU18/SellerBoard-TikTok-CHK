@@ -15,17 +15,22 @@ import polars as pl
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.costs import load_cost_history
 from app.gold import load_gold_frame
 from app.models import (
     Account,
+    AffiliateOrder,
     Channel,
     OrderLine,
     Product,
     ReturnCase,
     ReturnCaseLine,
     SalesOrder,
+    SampleApplication,
+    SampleLine,
     Settlement,
     Shipment,
+    ShippingLabelCost,
 )
 from app.profit import summarize
 
@@ -419,6 +424,204 @@ async def logistics_report(
             reverse=True,
         ),
     }
+
+
+# ---------------------------------------------------------------- muestras a creadores
+NO_CREATOR = "(sin creador identificado)"
+
+
+async def samples_report(
+    session: AsyncSession, start: date | None = None, end: date | None = None
+) -> dict:
+    """ROI de las muestras: costo de lo enviado vs utilidad de las ventas del creador después.
+
+    - Costo de la muestra = costo del producto + etiqueta (Redo) + envío de plataforma si la orden
+      entró a ventas.
+    - Utilidad del creador = utilidad neta de sus órdenes de afiliado desde su primera muestra. La
+      comisión del afiliado ya viene dentro de las comisiones de esa utilidad (no se resta otra vez).
+    - Las órdenes de afiliado que aún no se liquidan no tienen utilidad calculable: se cuentan aparte.
+    """
+    costs = await load_cost_history(session)
+    product_ids = {sku: pid for sku, pid in (await session.execute(select(Product.sku, Product.id))).all()}
+
+    # --- muestras enviadas
+    line_q = select(SampleLine)
+    if start:
+        line_q = line_q.where(SampleLine.order_date >= start)
+    if end:
+        line_q = line_q.where(SampleLine.order_date <= end)
+    sample_lines = (await session.scalars(line_q)).all()
+    order_ids = sorted({line.external_order_id for line in sample_lines})
+
+    creator_of: dict[str, str] = {}
+    for order_id, username in (
+        await session.execute(
+            select(SampleApplication.external_order_id, SampleApplication.creator_username).where(
+                SampleApplication.external_order_id.is_not(None)
+            )
+        )
+    ).all():
+        creator_of[order_id] = username or NO_CREATOR
+
+    labels = await _label_costs(session, order_ids)
+    in_sales = await _order_lines_by_external(session, order_ids)
+
+    orders: dict[str, dict] = {}
+    for line in sample_lines:
+        unit_cost = costs.unit_cost(product_ids[line.sku], line.order_date) if line.sku in product_ids else 0.0
+        o = orders.setdefault(
+            line.external_order_id,
+            {
+                "creator": creator_of.get(line.external_order_id, NO_CREATOR),
+                "date": line.order_date,
+                "units": 0,
+                "cogs": 0.0,
+            },
+        )
+        o["units"] += int(line.units)
+        o["cogs"] += float(line.units) * float(unit_cost)
+    for oid, o in orders.items():
+        o["shipping"] = labels.get(oid, 0.0) + sum(_f(r.shipping_cost) for r in in_sales.get(oid, []))
+        o["cost"] = o["cogs"] + o["shipping"]
+        o["in_profit"] = oid in in_sales
+
+    # --- ventas del creador (afiliados)
+    aff_q = select(AffiliateOrder)
+    if start:
+        aff_q = aff_q.where(AffiliateOrder.order_date >= start)
+    if end:
+        aff_q = aff_q.where(AffiliateOrder.order_date <= end)
+    affiliate = (await session.scalars(aff_q)).all()
+    aff_orders = sorted({a.external_order_id for a in affiliate})
+    aff_lines = await _order_lines_by_external(session, aff_orders)
+    aff_labels = await _label_costs(session, aff_orders)
+
+    def order_profit(oid: str) -> float | None:
+        lines = aff_lines.get(oid)
+        if not lines:
+            return None
+        total = 0.0
+        for r in lines:
+            cogs = float(r.units) * float(costs.unit_cost(r.product_id, r.order_date))
+            total += (
+                _f(r.gross_sales) - _f(r.promo) - _f(r.platform_fees) - _f(r.shipping_cost)
+                - _f(r.refund_amount) - cogs
+            )
+        return total - aff_labels.get(oid, 0.0)
+
+    creators: dict[str, dict] = {}
+    for oid, o in orders.items():
+        c = creators.setdefault(o["creator"], _blank_creator(o["creator"]))
+        c["sample_orders"] += 1
+        c["sample_units"] += o["units"]
+        c["sample_cost"] += o["cost"]
+        c["first_sample"] = min(c["first_sample"], o["date"]) if c["first_sample"] else o["date"]
+        if not o["in_profit"]:
+            c["cost_not_in_profit"] += o["cost"]
+
+    seen: dict[str, set[str]] = {}
+    for a in affiliate:
+        c = creators.get(a.creator_username or "")
+        if c is None or c["first_sample"] is None or a.order_date < c["first_sample"]:
+            continue
+        c["affiliate_units"] += int(a.units)
+        c["affiliate_gmv"] += _f(a.commission_base)
+        c["commission"] += _f(a.commission)
+        orders_seen = seen.setdefault(c["creator"], set())
+        if a.external_order_id not in orders_seen:
+            orders_seen.add(a.external_order_id)
+            profit = order_profit(a.external_order_id)
+            if profit is None:
+                c["orders_pending"] += 1
+            else:
+                c["affiliate_profit"] += profit
+    for name, c in creators.items():
+        c["affiliate_orders"] = len(seen.get(name, set()))
+        c["net"] = c["affiliate_profit"] - c["sample_cost"]
+        c["roi"] = _ratio(c["net"], c["sample_cost"])
+        c["first_sample"] = c["first_sample"].isoformat() if c["first_sample"] else None
+
+    rows = sorted(creators.values(), key=lambda c: c["net"], reverse=True)
+    total_cost = sum(c["sample_cost"] for c in rows)
+    total_profit = sum(c["affiliate_profit"] for c in rows)
+    with_sales = sum(1 for c in rows if c["affiliate_orders"] > 0)
+
+    statuses: dict[str, int] = {}
+    for (status,) in (await session.execute(select(SampleApplication.status))).all():
+        statuses[status or "(sin estado)"] = statuses.get(status or "(sin estado)", 0) + 1
+
+    return {
+        "summary": {
+            "sample_orders": len(orders),
+            "sample_units": sum(o["units"] for o in orders.values()),
+            "creators": len(rows),
+            "creators_with_sales": with_sales,
+            "creators_without_sales": len(rows) - with_sales,
+            "sample_cost": total_cost,
+            "cost_not_in_profit": sum(c["cost_not_in_profit"] for c in rows),
+            "affiliate_profit": total_profit,
+            "net": total_profit - total_cost,
+            "roi": _ratio(total_profit - total_cost, total_cost),
+            "orders_pending": sum(c["orders_pending"] for c in rows),
+        },
+        "creators": rows,
+        "applications_by_status": sorted(
+            ({"status": k, "applications": v} for k, v in statuses.items()),
+            key=lambda r: r["applications"],
+            reverse=True,
+        ),
+    }
+
+
+def _blank_creator(name: str) -> dict:
+    return {
+        "creator": name,
+        "sample_orders": 0,
+        "sample_units": 0,
+        "sample_cost": 0.0,
+        "cost_not_in_profit": 0.0,
+        "first_sample": None,
+        "affiliate_orders": 0,
+        "affiliate_units": 0,
+        "affiliate_gmv": 0.0,
+        "commission": 0.0,
+        "affiliate_profit": 0.0,
+        "orders_pending": 0,
+    }
+
+
+async def _label_costs(session: AsyncSession, order_ids: list[str]) -> dict[str, float]:
+    """Costo de etiquetas por orden (todas las fuentes, p. ej. Redo)."""
+    out: dict[str, float] = {}
+    for i in range(0, len(order_ids), 500):
+        part = order_ids[i : i + 500]
+        for oid, amount in (
+            await session.execute(
+                select(ShippingLabelCost.external_order_id, func.sum(ShippingLabelCost.amount))
+                .where(ShippingLabelCost.external_order_id.in_(part))
+                .group_by(ShippingLabelCost.external_order_id)
+            )
+        ).all():
+            out[oid] = _f(amount)
+    return out
+
+
+async def _order_lines_by_external(
+    session: AsyncSession, order_ids: list[str]
+) -> dict[str, list[OrderLine]]:
+    """Líneas de venta (capa plata) de las órdenes dadas, por id externo de la orden."""
+    out: dict[str, list[OrderLine]] = {}
+    for i in range(0, len(order_ids), 500):
+        part = order_ids[i : i + 500]
+        for external_id, line in (
+            await session.execute(
+                select(SalesOrder.external_order_id, OrderLine)
+                .join(OrderLine, OrderLine.order_id == SalesOrder.id)
+                .where(SalesOrder.external_order_id.in_(part))
+            )
+        ).all():
+            out.setdefault(external_id, []).append(line)
+    return out
 
 
 # ---------------------------------------------------------------- flujo de caja
