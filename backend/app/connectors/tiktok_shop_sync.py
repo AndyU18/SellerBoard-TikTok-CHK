@@ -18,7 +18,13 @@ import polars as pl
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.connectors.tiktok_shop import TikTokShopClient
+from app.connectors.tiktok_shop_ops import (
+    build_return_cases,
+    build_shipments,
+    sku_by_order_line,
+)
 from app.importers.persist import ImportResult, import_orders
+from app.ops_data import upsert_return_cases, upsert_shipments
 from app.settlements import upsert_settlements
 
 CHANNEL = "tiktok_shop"
@@ -178,11 +184,13 @@ class SyncReport:
 
 def fetch_window(
     client: TikTokShopClient, days: int
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-    """Órdenes creadas en la ventana, sus transacciones de liquidación y los estados de cuenta."""
+) -> tuple[list[dict[str, Any]], ...]:
+    """Órdenes de la ventana, transacciones de liquidación, estados de cuenta, devoluciones y cancelaciones."""
     end = datetime.now(UTC)
     start = end - timedelta(days=days)
     orders = list(client.iter_orders(start, end))
+    returns = list(client.iter_returns(start, end))
+    cancellations = list(client.iter_cancellations(start, end))
     window = {o["id"] for o in orders}
     transactions: list[dict[str, Any]] = []
     statements = list(client.iter_statements(start, end))
@@ -190,7 +198,7 @@ def fetch_window(
         for tx in client.iter_statement_transactions(statement["id"]):
             if tx.get("order_id") in window:
                 transactions.append(tx)
-    return orders, transactions, statements
+    return orders, transactions, statements, returns, cancellations
 
 
 async def sync_tiktok_shop(
@@ -199,11 +207,16 @@ async def sync_tiktok_shop(
     days: int = 30,
     account: str = DEFAULT_ACCOUNT,
 ) -> SyncReport:
-    orders, transactions, statements = await asyncio.to_thread(fetch_window, client, days)
+    orders, transactions, statements, returns, cancellations = await asyncio.to_thread(
+        fetch_window, client, days
+    )
     frame, stats = build_order_lines(orders, transactions, account)
     imported = await import_orders(session, frame) if frame.height else ImportResult()
     stats["settlements"] = await upsert_settlements(
         session, CHANNEL, account, build_settlements(statements)
     )
+    cases = build_return_cases(returns, cancellations, sku_by_order_line(orders))
+    stats["return_cases"] = await upsert_return_cases(session, CHANNEL, account, cases)
+    stats["shipments"] = await upsert_shipments(session, CHANNEL, account, build_shipments(orders))
     await session.commit()
     return SyncReport(days=days, stats=stats, imported=imported)

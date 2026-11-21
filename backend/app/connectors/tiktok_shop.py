@@ -195,6 +195,27 @@ class TikTokShopClient:
             },
         )
 
+    def iter_returns(self, start: datetime, end: datetime) -> Iterator[dict[str, Any]]:
+        """Devoluciones/reembolsos con actividad en la ventana (por fecha de actualización)."""
+        yield from self._paginate(
+            "POST",
+            "/return_refund/202309/returns/search",
+            "return_orders",
+            {"page_size": 50},
+            {"update_time_ge": int(start.timestamp()), "update_time_lt": int(end.timestamp())},
+        )
+
+    def iter_cancellations(
+        self, start: datetime, end: datetime
+    ) -> Iterator[dict[str, Any]]:
+        yield from self._paginate(
+            "POST",
+            "/return_refund/202309/cancellations/search",
+            "cancellations",
+            {"page_size": 50},
+            {"update_time_ge": int(start.timestamp()), "update_time_lt": int(end.timestamp())},
+        )
+
     def iter_statements(
         self, start: datetime, end: datetime
     ) -> Iterator[dict[str, Any]]:

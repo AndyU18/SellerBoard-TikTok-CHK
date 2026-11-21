@@ -41,7 +41,13 @@ from app.models import (
     ProductCostHistory,
 )
 from app.profit import abc_classes, overall, summarize
-from app.reports import cashflow_report, dayparting_report, promotions_report
+from app.reports import (
+    cashflow_report,
+    dayparting_report,
+    logistics_report,
+    promotions_report,
+    returns_report,
+)
 
 router = APIRouter(prefix="/api")
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -268,6 +274,28 @@ async def dayparting(
 ) -> dict:
     """Órdenes y ventas por día de la semana y hora (zona horaria CHK_REPORT_TIMEZONE)."""
     return await dayparting_report(session, settings.report_timezone, start, end, channel)
+
+
+@router.get("/returns", dependencies=[Depends(require("profit.view"))])
+async def returns(
+    session: SessionDep,
+    start: date | None = None,
+    end: date | None = None,
+    channel: Channel | None = None,
+) -> dict:
+    """Devoluciones y cancelaciones (RMA): motivos, productos y tasa de devolución."""
+    return await returns_report(session, start, end, channel)
+
+
+@router.get("/logistics", dependencies=[Depends(require("profit.view"))])
+async def logistics(
+    session: SessionDep,
+    start: date | None = None,
+    end: date | None = None,
+    channel: Channel | None = None,
+) -> dict:
+    """Tiempos de envío, puntualidad y transportistas."""
+    return await logistics_report(session, start, end, channel)
 
 
 @router.get("/cashflow", dependencies=[Depends(require("profit.view"))])

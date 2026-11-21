@@ -184,6 +184,64 @@ class Settlement(Base):
     net_payout: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
 
 
+class ReturnCase(Base):
+    """Devolución o cancelación de la plataforma (RMA). Ver ..._returns_and_shipments.sql."""
+
+    __tablename__ = "return_case"
+    __table_args__ = (UniqueConstraint("account_id", "external_id"), {"schema": "sales"})
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("sales.account.id"))
+    external_id: Mapped[str] = mapped_column(String)
+    kind: Mapped[str] = mapped_column(String)  # return | cancellation
+    case_type: Mapped[str | None] = mapped_column(String)
+    status: Mapped[str | None] = mapped_column(String)
+    reason: Mapped[str | None] = mapped_column(String)
+    reason_code: Mapped[str | None] = mapped_column(String)
+    initiated_by: Mapped[str | None] = mapped_column(String)
+    external_order_id: Mapped[str] = mapped_column(String, index=True)
+    case_date: Mapped[date] = mapped_column(Date, index=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    refund_total: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+
+
+class ReturnCaseLine(Base):
+    __tablename__ = "return_case_line"
+    __table_args__ = ({"schema": "sales"},)
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    case_id: Mapped[int] = mapped_column(ForeignKey("sales.return_case.id"), index=True)
+    sku: Mapped[str] = mapped_column(String)
+    product_name: Mapped[str | None] = mapped_column(String)
+    units: Mapped[int] = mapped_column(default=1)
+    refund_total: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+
+
+class Shipment(Base):
+    """Tiempos de una orden (pago, listo para enviar, recolección, entrega, fecha límite)."""
+
+    __tablename__ = "shipment"
+    __table_args__ = (UniqueConstraint("account_id", "external_order_id"), {"schema": "sales"})
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("sales.account.id"))
+    external_order_id: Mapped[str] = mapped_column(String)
+    order_date: Mapped[date] = mapped_column(Date, index=True)
+    status: Mapped[str | None] = mapped_column(String)
+    shipping_type: Mapped[str | None] = mapped_column(String)
+    fulfillment_type: Mapped[str | None] = mapped_column(String)
+    delivery_option: Mapped[str | None] = mapped_column(String)
+    carrier: Mapped[str | None] = mapped_column(String)
+    tracking_number: Mapped[str | None] = mapped_column(String)
+    is_sample: Mapped[bool] = mapped_column(default=False)
+    ordered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    collected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class AdSpendDaily(Base):
     """Gasto publicitario diario (Amazon Ads, TikTok Ads, Walmart Connect)."""
 

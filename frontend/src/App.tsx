@@ -8,6 +8,8 @@ import {
   LogOut,
   Package,
   Tag,
+  Truck,
+  Undo2,
   Upload,
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
@@ -20,9 +22,11 @@ import { Dashboard } from '@/pages/Dashboard'
 import { Dayparting } from '@/pages/Dayparting'
 import { Import } from '@/pages/Import'
 import { Login } from '@/pages/Login'
+import { Logistics } from '@/pages/Logistics'
 import { Pareto } from '@/pages/Pareto'
 import { Products } from '@/pages/Products'
 import { Promotions } from '@/pages/Promotions'
+import { Returns } from '@/pages/Returns'
 import { Versus } from '@/pages/Versus'
 
 type Page =
@@ -32,6 +36,8 @@ type Page =
   | 'promotions'
   | 'dayparting'
   | 'cashflow'
+  | 'returns'
+  | 'logistics'
   | 'products'
   | 'costs'
   | 'import'
@@ -43,6 +49,8 @@ const NAV: { id: Page; label: string; icon: ReactNode; permission: string }[] = 
   { id: 'promotions', label: 'Promociones', icon: <Tag className="size-4" />, permission: 'profit.view' },
   { id: 'dayparting', label: 'Horas pico', icon: <Clock className="size-4" />, permission: 'profit.view' },
   { id: 'cashflow', label: 'Flujo de caja', icon: <Banknote className="size-4" />, permission: 'profit.view' },
+  { id: 'returns', label: 'Devoluciones', icon: <Undo2 className="size-4" />, permission: 'profit.view' },
+  { id: 'logistics', label: 'Logística', icon: <Truck className="size-4" />, permission: 'profit.view' },
   { id: 'products', label: 'Productos', icon: <Package className="size-4" />, permission: 'catalog.view' },
   { id: 'costs', label: 'Costos (COGS)', icon: <Coins className="size-4" />, permission: 'catalog.view' },
   { id: 'import', label: 'Importar', icon: <Upload className="size-4" />, permission: 'import.run' },
@@ -146,6 +154,8 @@ export default function App() {
           {current === 'promotions' && <Promotions />}
           {current === 'dayparting' && <Dayparting />}
           {current === 'cashflow' && <Cashflow />}
+          {current === 'returns' && <Returns />}
+          {current === 'logistics' && <Logistics />}
           {current === 'products' && <Products />}
           {current === 'costs' && <Costs />}
           {current === 'import' && <Import />}

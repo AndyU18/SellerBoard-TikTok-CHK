@@ -7,7 +7,8 @@ utilidad, la cruzan con la capa oro.
 
 from __future__ import annotations
 
-from datetime import UTC, date
+import statistics
+from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
 import polars as pl
@@ -15,7 +16,17 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.gold import load_gold_frame
-from app.models import Account, Channel, OrderLine, Product, SalesOrder, Settlement
+from app.models import (
+    Account,
+    Channel,
+    OrderLine,
+    Product,
+    ReturnCase,
+    ReturnCaseLine,
+    SalesOrder,
+    Settlement,
+    Shipment,
+)
 from app.profit import summarize
 
 DEEP_DISCOUNT = 0.30  # descuento total (vendedor + plataforma) desde el cual se marca "agresivo"
@@ -178,6 +189,235 @@ async def dayparting_report(
             for (wd, hr), c in sorted(cells.items())
         ],
         "best_hours": [{"hour": hr, **{k: round(v, 2) for k, v in c.items()}} for hr, c in best],
+    }
+
+
+# ---------------------------------------------------------------- devoluciones (RMA)
+OPEN_RETURN_STATUSES = {
+    "RETURN_OR_REFUND_REQUEST_PENDING",
+    "AWAITING_BUYER_SHIP",
+    "BUYER_SHIPPED_ITEM",
+}
+
+
+def _is_withdrawn(status: str | None) -> bool:
+    """El comprador retiró la solicitud: no cuenta como devolución."""
+    return bool(status) and status.endswith("_CANCEL")  # type: ignore[union-attr]
+
+
+async def returns_report(
+    session: AsyncSession,
+    start: date | None = None,
+    end: date | None = None,
+    channel: Channel | None = None,
+) -> dict:
+    """Devoluciones y cancelaciones: motivos, productos con más devoluciones y tasa de devolución."""
+    query = (
+        select(ReturnCase, ReturnCaseLine)
+        .join(Account, ReturnCase.account_id == Account.id)
+        .outerjoin(ReturnCaseLine, ReturnCaseLine.case_id == ReturnCase.id)
+    )
+    if start:
+        query = query.where(ReturnCase.case_date >= start)
+    if end:
+        query = query.where(ReturnCase.case_date <= end)
+    if channel:
+        query = query.where(Account.channel_code == channel.value)
+
+    cases: dict[int, ReturnCase] = {}
+    lines: list[tuple[ReturnCase, ReturnCaseLine]] = []
+    for case, line in (await session.execute(query)).all():
+        cases[case.id] = case
+        if line is not None:
+            lines.append((case, line))
+    valid = [c for c in cases.values() if not _is_withdrawn(c.status)]
+    returns = [c for c in valid if c.kind == "return"]
+    cancels = [c for c in valid if c.kind == "cancellation"]
+
+    sold_q = (
+        select(Product.sku, func.sum(OrderLine.units))
+        .join(OrderLine, OrderLine.product_id == Product.id)
+        .join(Account, OrderLine.account_id == Account.id)
+        .group_by(Product.sku)
+    )
+    if start:
+        sold_q = sold_q.where(OrderLine.order_date >= start)
+    if end:
+        sold_q = sold_q.where(OrderLine.order_date <= end)
+    if channel:
+        sold_q = sold_q.where(Account.channel_code == channel.value)
+    sold = {sku: int(units or 0) for sku, units in (await session.execute(sold_q)).all()}
+
+    reasons: dict[tuple[str, str], dict] = {}
+    for c in valid:
+        r = reasons.setdefault(
+            (c.kind, c.reason or "(sin motivo)"),
+            {"kind": c.kind, "reason": c.reason or "(sin motivo)", "cases": 0, "refund_total": 0.0},
+        )
+        r["cases"] += 1
+        r["refund_total"] += _f(c.refund_total)
+
+    products: dict[str, dict] = {}
+    for case, line in lines:
+        if _is_withdrawn(case.status):
+            continue
+        p = products.setdefault(
+            line.sku,
+            {
+                "sku": line.sku,
+                "product_name": line.product_name,
+                "returned_units": 0,
+                "returned_refund": 0.0,
+                "cancelled_units": 0,
+            },
+        )
+        if case.kind == "return":
+            p["returned_units"] += int(line.units)
+            p["returned_refund"] += _f(line.refund_total)
+        else:
+            p["cancelled_units"] += int(line.units)
+    product_rows = []
+    for p in products.values():
+        units_sold = sold.get(p["sku"], 0)
+        product_rows.append(
+            {
+                **p,
+                "units_sold": units_sold,
+                "return_rate": _ratio(p["returned_units"], units_sold),
+            }
+        )
+    product_rows.sort(key=lambda r: (r["returned_units"], r["cancelled_units"]), reverse=True)
+
+    returned_units = sum(p["returned_units"] for p in product_rows)
+    total_sold = sum(sold.values())
+    seller_cancels = sum(1 for c in cancels if c.initiated_by == "seller")
+    recent = sorted(cases.values(), key=lambda c: (c.case_date, c.external_id), reverse=True)[:30]
+    return {
+        "summary": {
+            "returns": len(returns),
+            "returns_open": sum(1 for c in returns if c.status in OPEN_RETURN_STATUSES),
+            "return_refund": sum(_f(c.refund_total) for c in returns),
+            "returned_units": returned_units,
+            "units_sold": total_sold,
+            "return_rate": _ratio(returned_units, total_sold),
+            "cancellations": len(cancels),
+            "cancel_refund": sum(_f(c.refund_total) for c in cancels),
+            "seller_cancellations": seller_cancels,
+        },
+        "by_reason": sorted(reasons.values(), key=lambda r: r["cases"], reverse=True),
+        "by_product": product_rows,
+        "recent": [
+            {
+                "external_id": c.external_id,
+                "kind": c.kind,
+                "case_type": c.case_type,
+                "status": c.status,
+                "reason": c.reason,
+                "initiated_by": c.initiated_by,
+                "external_order_id": c.external_order_id,
+                "case_date": c.case_date,
+                "refund_total": _f(c.refund_total),
+            }
+            for c in recent
+        ],
+    }
+
+
+# ---------------------------------------------------------------- logística
+def _aware(value: datetime | None) -> datetime | None:
+    if value is not None and value.tzinfo is None:  # SQLite devuelve fechas sin zona (UTC)
+        return value.replace(tzinfo=UTC)
+    return value
+
+
+def _avg(values: list[float]) -> float | None:
+    return sum(values) / len(values) if values else None
+
+
+def _median(values: list[float]) -> float | None:
+    return statistics.median(values) if values else None
+
+
+async def logistics_report(
+    session: AsyncSession,
+    start: date | None = None,
+    end: date | None = None,
+    channel: Channel | None = None,
+    now: datetime | None = None,
+) -> dict:
+    """Tiempos de envío: manejo (pago -> listo), tránsito (recolección -> entrega) y puntualidad."""
+    now = now or datetime.now(UTC)
+    query = select(Shipment, Account.channel_code).join(Account, Shipment.account_id == Account.id)
+    if start:
+        query = query.where(Shipment.order_date >= start)
+    if end:
+        query = query.where(Shipment.order_date <= end)
+    if channel:
+        query = query.where(Account.channel_code == channel.value)
+
+    statuses: dict[str, int] = {}
+    handling: list[float] = []
+    transit: list[float] = []
+    on_time = late = overdue_now = samples = cancelled = 0
+    carriers: dict[str, dict[str, list[float] | int]] = {}
+    total = 0
+    for s, _ in (await session.execute(query)).all():
+        total += 1
+        statuses[s.status or "(sin estado)"] = statuses.get(s.status or "(sin estado)", 0) + 1
+        samples += int(bool(s.is_sample))
+        if s.status == "CANCELLED":
+            cancelled += 1
+            continue
+        ordered, rts, collected = _aware(s.ordered_at), _aware(s.rts_at), _aware(s.collected_at)
+        delivered, due = _aware(s.delivered_at), _aware(s.due_at)
+        if ordered and rts:
+            handling.append((rts - ordered).total_seconds() / 3600)
+        if rts and due:
+            if rts <= due:
+                on_time += 1
+            else:
+                late += 1
+        if s.status == "AWAITING_SHIPMENT" and due and due < now:
+            overdue_now += 1
+        c = carriers.setdefault(s.carrier or "(sin transportista)", {"shipments": 0, "days": []})
+        c["shipments"] += 1  # type: ignore[operator]
+        if collected and delivered and delivered >= collected:
+            days = (delivered - collected).total_seconds() / 86400
+            transit.append(days)
+            c["days"].append(days)  # type: ignore[union-attr]
+
+    return {
+        "summary": {
+            "shipments": total,
+            "cancelled": cancelled,
+            "sample_orders": samples,
+            "handling_hours_avg": _avg(handling),
+            "handling_hours_median": _median(handling),
+            "transit_days_avg": _avg(transit),
+            "transit_days_median": _median(transit),
+            "shipped_on_time": on_time,
+            "shipped_late": late,
+            "on_time_rate": _ratio(on_time, on_time + late),
+            "overdue_now": overdue_now,
+        },
+        "by_status": sorted(
+            ({"status": k, "orders": v} for k, v in statuses.items()),
+            key=lambda r: r["orders"],
+            reverse=True,
+        ),
+        "by_carrier": sorted(
+            (
+                {
+                    "carrier": name,
+                    "shipments": int(c["shipments"]),  # type: ignore[arg-type]
+                    "delivered": len(c["days"]),  # type: ignore[arg-type]
+                    "transit_days_avg": _avg(c["days"]),  # type: ignore[arg-type]
+                }
+                for name, c in carriers.items()
+            ),
+            key=lambda r: r["shipments"],
+            reverse=True,
+        ),
     }
 
 

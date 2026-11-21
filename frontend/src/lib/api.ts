@@ -150,6 +150,59 @@ export interface CashflowResponse {
   rows: SettlementRow[]
 }
 
+export interface ReturnsResponse {
+  summary: {
+    returns: number
+    returns_open: number
+    return_refund: number
+    returned_units: number
+    units_sold: number
+    return_rate: number | null
+    cancellations: number
+    cancel_refund: number
+    seller_cancellations: number
+  }
+  by_reason: { kind: 'return' | 'cancellation'; reason: string; cases: number; refund_total: number }[]
+  by_product: {
+    sku: string
+    product_name: string | null
+    returned_units: number
+    returned_refund: number
+    cancelled_units: number
+    units_sold: number
+    return_rate: number | null
+  }[]
+  recent: {
+    external_id: string
+    kind: 'return' | 'cancellation'
+    case_type: string | null
+    status: string | null
+    reason: string | null
+    initiated_by: string | null
+    external_order_id: string
+    case_date: string
+    refund_total: number
+  }[]
+}
+
+export interface LogisticsResponse {
+  summary: {
+    shipments: number
+    cancelled: number
+    sample_orders: number
+    handling_hours_avg: number | null
+    handling_hours_median: number | null
+    transit_days_avg: number | null
+    transit_days_median: number | null
+    shipped_on_time: number
+    shipped_late: number
+    on_time_rate: number | null
+    overdue_now: number
+  }
+  by_status: { status: string; orders: number }[]
+  by_carrier: { carrier: string; shipments: number; delivered: number; transit_days_avg: number | null }[]
+}
+
 export interface Filters {
   start?: string
   end?: string
@@ -228,6 +281,14 @@ export const api = {
   dayparting: (f: Filters) =>
     authFetch(`/api/dayparting${query({ start: f.start, end: f.end, channel: f.channel })}`).then((r) =>
       parse<DaypartingResponse>(r),
+    ),
+  returns: (f: Filters) =>
+    authFetch(`/api/returns${query({ start: f.start, end: f.end, channel: f.channel })}`).then((r) =>
+      parse<ReturnsResponse>(r),
+    ),
+  logistics: (f: Filters) =>
+    authFetch(`/api/logistics${query({ start: f.start, end: f.end, channel: f.channel })}`).then((r) =>
+      parse<LogisticsResponse>(r),
     ),
   cashflow: (f: Filters) =>
     authFetch(`/api/cashflow${query({ start: f.start, end: f.end })}`).then((r) => parse<CashflowResponse>(r)),
