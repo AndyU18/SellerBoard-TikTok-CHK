@@ -41,7 +41,9 @@ _MONEY_COLUMNS = [
 
 def _check_columns(df: pl.DataFrame) -> None:
     # Si el DataFrame ya trae `cogs` (capa oro), no hace falta `cogs_unit`.
-    required = [c for c in REQUIRED_COLUMNS if not (c == "cogs_unit" and "cogs" in df.columns)]
+    required = [
+        c for c in REQUIRED_COLUMNS if not (c == "cogs_unit" and "cogs" in df.columns)
+    ]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"Faltan columnas: {missing}")
@@ -100,6 +102,47 @@ def overall(df: pl.DataFrame) -> dict | None:
     """Totales de todo el DataFrame (None si está vacío)."""
     out = summarize(df.with_columns(pl.lit("all").alias("_all")), ["_all"]).drop("_all")
     return out.to_dicts()[0] if out.height else None
+
+
+ABC_A_LIMIT = 0.80
+ABC_B_LIMIT = 0.95
+
+
+def abc_classes(products: pl.DataFrame, metric: str = "profit") -> pl.DataFrame:
+    """Clasificación Pareto ABC de un resumen por producto (salida de `summarize(df, ["sku"])`).
+
+    Se ordena por la métrica (`profit` = utilidad neta, `sales` = ventas) y se acumula su peso:
+    A = los que llegan al 80 % acumulado, B = hasta el 95 %, C = el resto. Un producto es A si el
+    acumulado ANTES de sumarlo todavía no llega al 80 % (así el primero siempre es A).
+    Los productos con utilidad negativa no suman al total: quedan como "loss" sin participación.
+    """
+    column = "net_profit" if metric == "profit" else "gross_sales"
+    positive = products.filter(pl.col(column) > 0).sort(column, descending=True)
+    total = float(positive[column].sum()) if positive.height else 0.0
+    positive = positive.with_columns(
+        (pl.col(column) / total).alias("share")
+    ).with_columns(pl.col("share").cum_sum().alias("cumulative_share"))
+    before = pl.col("cumulative_share") - pl.col("share")
+    positive = positive.with_columns(
+        pl.when(before < ABC_A_LIMIT)
+        .then(pl.lit("A"))
+        .when(before < ABC_B_LIMIT)
+        .then(pl.lit("B"))
+        .otherwise(pl.lit("C"))
+        .alias("abc_class")
+    )
+    rest = (
+        products.filter(~(pl.col(column) > 0))
+        .sort(column)
+        .with_columns(
+            pl.lit(None, dtype=pl.Float64).alias("share"),
+            pl.lit(None, dtype=pl.Float64).alias("cumulative_share"),
+            pl.lit("loss" if metric == "profit" else "C").alias("abc_class"),
+        )
+    )
+    return pl.concat([positive, rest.select(positive.columns)]).with_columns(
+        pl.col("share").round(4), pl.col("cumulative_share").round(4)
+    )
 
 
 def profit_by_channel(df: pl.DataFrame) -> pl.DataFrame:

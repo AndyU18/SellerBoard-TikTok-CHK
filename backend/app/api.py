@@ -32,8 +32,15 @@ from app.importers.canonical import (
 )
 from app.importers.persist import import_ad_spend, import_cogs, import_orders
 from app.importers.redo import import_label_costs, normalize_redo
-from app.models import Account, Channel, GoldRefreshLog, Product
-from app.profit import overall, summarize
+from app.models import (
+    Account,
+    Channel,
+    CostComponentType,
+    GoldRefreshLog,
+    Product,
+    ProductCostHistory,
+)
+from app.profit import abc_classes, overall, summarize
 
 router = APIRouter(prefix="/api")
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -217,6 +224,29 @@ async def profit(
     return {"group_by": group_by, "rows": rows.to_dicts(), "totals": overall(df)}
 
 
+@router.get("/profit/pareto", dependencies=[Depends(require("profit.view"))])
+async def profit_pareto(
+    session: SessionDep,
+    metric: Literal["profit", "sales"] = "profit",
+    start: date | None = None,
+    end: date | None = None,
+    channel: Channel | None = None,
+) -> dict:
+    """Clasificación ABC (Pareto) de productos por utilidad neta o por ventas."""
+    df = await load_gold_frame(session, start=start, end=end, channel=channel)
+    products = summarize(df, ["sku"])
+    if products.height == 0:
+        return {"metric": metric, "rows": [], "summary": {}}
+    names = df.group_by("sku").agg(pl.col("product_name").drop_nulls().first())
+    ranked = abc_classes(products.join(names, on="sku", how="left"), metric)
+    column = "net_profit" if metric == "profit" else "gross_sales"
+    summary = {
+        str(key[0]): {"products": g.height, "value": round(float(g[column].sum()), 2)}
+        for key, g in ranked.partition_by("abc_class", as_dict=True, maintain_order=True).items()
+    }
+    return {"metric": metric, "rows": ranked.to_dicts(), "summary": summary}
+
+
 @router.post("/gold/refresh", dependencies=[Depends(require("sync.run", writes=True))])
 async def gold_refresh(
     session: SessionDep, start: date | None = None, end: date | None = None
@@ -287,8 +317,29 @@ async def list_products(session: SessionDep) -> list[dict]:
             "sku": p.sku,
             "name": p.name,
             "cogs_unit": costs.unit_cost(p.id, today),
+            "has_cost": costs.unit_cost(p.id, today) > 0,
         }
         for p in rows
+    ]
+
+
+@router.get("/products/{product_id}/cogs-history", dependencies=[Depends(require("catalog.view"))])
+async def cogs_history(product_id: int, session: SessionDep) -> list[dict]:
+    """Historial de costos del producto (más reciente primero)."""
+    rows = (
+        await session.execute(
+            select(
+                ProductCostHistory.valid_from,
+                ProductCostHistory.amount,
+                CostComponentType.code,
+            )
+            .join(CostComponentType, ProductCostHistory.component_type_id == CostComponentType.id)
+            .where(ProductCostHistory.product_id == product_id)
+            .order_by(ProductCostHistory.valid_from.desc())
+        )
+    ).all()
+    return [
+        {"valid_from": d, "amount": float(a), "component": code} for d, a, code in rows
     ]
 
 

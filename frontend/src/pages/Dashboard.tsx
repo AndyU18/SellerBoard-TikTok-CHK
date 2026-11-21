@@ -15,8 +15,46 @@ import { ChannelBadge } from '@/components/ChannelBadge'
 import { FilterBar, type ChannelFilter } from '@/components/FilterBar'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { api, CHANNEL_COLOR, CHANNEL_LABEL, CHANNELS, type Filters, type ProfitRow } from '@/lib/api'
-import { count, money, neg, percent, presetRange, tone, type Preset } from '@/lib/format'
+import { change, count, money, neg, percent, presetRange, previousRange, tone, type Preset } from '@/lib/format'
 import { useAsync } from '@/lib/useAsync'
+
+/** Variación contra el periodo anterior (verde si sube, rojo si baja). */
+function Delta({ value }: { value: number | null }) {
+  if (value == null) return null
+  const up = value >= 0
+  return (
+    <span className={`text-xs font-medium ${up ? 'text-green-700' : 'text-red-600'}`}>
+      {up ? '▲' : '▼'} {Math.abs(value * 100).toFixed(1)}% vs periodo anterior
+    </span>
+  )
+}
+
+function ProductList({ title, rows, empty }: { title: string; rows: ProfitRow[]; empty: string }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {rows.length === 0 ? (
+          <p className="text-muted-foreground text-sm">{empty}</p>
+        ) : (
+          <ul className="divide-y text-sm">
+            {rows.map((r) => (
+              <li key={r.sku} className="flex items-center justify-between gap-3 py-1.5">
+                <span className="min-w-0 truncate" title={r.product_name ?? r.sku}>
+                  <span className="font-medium">{r.sku}</span>
+                  <span className="text-muted-foreground ml-2 text-xs">{count(r.units)} unid.</span>
+                </span>
+                <span className={`shrink-0 font-medium ${tone(r.net_profit)}`}>{money(r.net_profit)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
 
 function Stat({ label, value, className = '' }: { label: string; value: string; className?: string }) {
   return (
@@ -27,14 +65,25 @@ function Stat({ label, value, className = '' }: { label: string; value: string; 
   )
 }
 
-function SummaryCard({ title, row }: { title: ReactNode; row: ProfitRow }) {
+function SummaryCard({
+  title,
+  row,
+  delta = null,
+}: {
+  title: ReactNode
+  row: ProfitRow
+  delta?: number | null
+}) {
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-sm font-medium">{title}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className={`text-2xl font-semibold ${tone(row.net_profit)}`}>{money(row.net_profit)}</div>
+        <div>
+          <div className={`text-2xl font-semibold ${tone(row.net_profit)}`}>{money(row.net_profit)}</div>
+          <Delta value={delta} />
+        </div>
         <div className="grid grid-cols-3 gap-2">
           <Stat label="Unidades" value={count(row.units)} />
           <Stat label="Utilidad / unid." value={money(row.unit_profit)} className={tone(row.unit_profit)} />
@@ -80,6 +129,20 @@ export function Dashboard() {
 
   const byChannel = useAsync(() => api.profit('channel', filters), [filters])
   const series = useAsync(() => api.timeseries(interval, filters), [filters, interval])
+  const byProduct = useAsync(() => api.profit('product', filters), [filters])
+  const previous = useAsync(async () => {
+    const range = previousRange(preset)
+    return range ? api.profit('channel', { ...range, channel: filters.channel }) : null
+  }, [preset, filters.channel])
+
+  const productRows = byProduct.data?.rows ?? []
+  const topProducts = [...productRows].sort((a, b) => b.net_profit - a.net_profit).slice(0, 5)
+  const lossProducts = productRows.filter((r) => r.net_profit < 0).sort((a, b) => a.net_profit - b.net_profit).slice(0, 5)
+  const noCost = productRows.filter((r) => r.cogs === 0 && r.units > 0)
+  const noCostSales = noCost.reduce((s, r) => s + r.gross_sales, 0)
+  const totalSales = byChannel.data?.totals?.gross_sales ?? 0
+  const prevByChannel = new Map((previous.data?.rows ?? []).map((r) => [r.channel, r]))
+  const prevTotals = previous.data?.totals ?? null
 
   const chartData = useMemo(() => {
     const byPeriod = new Map<string, Record<string, number | string>>()
@@ -99,7 +162,7 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
+        <h1 className="text-2xl font-semibold">Resumen ejecutivo</h1>
         <FilterBar preset={preset} onPreset={setPreset} channel={channel} onChannel={setChannel} />
       </div>
 
@@ -109,12 +172,33 @@ export function Dashboard() {
         </div>
       )}
 
+      {noCost.length > 0 && (
+        <div role="status" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <strong>La utilidad está inflada:</strong> {noCost.length} productos vendidos no tienen costo (COGS), el{' '}
+          {totalSales > 0 ? ((noCostSales / totalSales) * 100).toFixed(0) : 0}% de las ventas del periodo. Complétalos en
+          la sección Costos (COGS).
+        </div>
+      )}
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {totals && <SummaryCard title="Total" row={totals} />}
+        {totals && <SummaryCard title="Total" row={totals} delta={prevTotals ? change(totals.net_profit, prevTotals.net_profit) : null} />}
         {CHANNELS.map((c) => {
           const row = rows.find((r) => r.channel === c)
-          return row ? <SummaryCard key={c} title={<ChannelBadge channel={c} />} row={row} /> : null
+          const prev = prevByChannel.get(c)
+          return row ? (
+            <SummaryCard
+              key={c}
+              title={<ChannelBadge channel={c} />}
+              row={row}
+              delta={prev ? change(row.net_profit, prev.net_profit) : null}
+            />
+          ) : null
         })}
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <ProductList title="Top 5 productos por utilidad" rows={topProducts} empty="Sin ventas en este periodo." />
+        <ProductList title="Productos con pérdida" rows={lossProducts} empty="Ningún producto pierde dinero en este periodo." />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1fr_20rem]">

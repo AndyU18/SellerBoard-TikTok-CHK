@@ -1,18 +1,24 @@
-import { LayoutDashboard, LogOut, Package, Upload } from 'lucide-react'
+import { BarChart3, Coins, GitCompareArrows, LayoutDashboard, LogOut, Package, Upload } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
+import { Costs } from '@/pages/Costs'
 import { Dashboard } from '@/pages/Dashboard'
 import { Import } from '@/pages/Import'
 import { Login } from '@/pages/Login'
+import { Pareto } from '@/pages/Pareto'
 import { Products } from '@/pages/Products'
+import { Versus } from '@/pages/Versus'
 
-type Page = 'dashboard' | 'products' | 'import'
+type Page = 'dashboard' | 'pareto' | 'versus' | 'products' | 'costs' | 'import'
 
 const NAV: { id: Page; label: string; icon: ReactNode; permission: string }[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="size-4" />, permission: 'profit.view' },
+  { id: 'dashboard', label: 'Resumen ejecutivo', icon: <LayoutDashboard className="size-4" />, permission: 'profit.view' },
+  { id: 'pareto', label: 'Pareto ABC', icon: <BarChart3 className="size-4" />, permission: 'profit.view' },
+  { id: 'versus', label: 'Versus', icon: <GitCompareArrows className="size-4" />, permission: 'profit.view' },
   { id: 'products', label: 'Productos', icon: <Package className="size-4" />, permission: 'catalog.view' },
+  { id: 'costs', label: 'Costos (COGS)', icon: <Coins className="size-4" />, permission: 'catalog.view' },
   { id: 'import', label: 'Importar', icon: <Upload className="size-4" />, permission: 'import.run' },
 ]
 
@@ -109,7 +115,10 @@ export default function App() {
         </nav>
         <main className="flex-1 p-6">
           {current === 'dashboard' && <Dashboard />}
+          {current === 'pareto' && <Pareto />}
+          {current === 'versus' && <Versus />}
           {current === 'products' && <Products />}
+          {current === 'costs' && <Costs />}
           {current === 'import' && <Import />}
         </main>
       </div>

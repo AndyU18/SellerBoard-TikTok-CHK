@@ -50,6 +50,33 @@ export interface Product {
   sku: string
   name: string | null
   cogs_unit: number
+  has_cost: boolean
+}
+
+export interface CostHistoryEntry {
+  valid_from: string
+  amount: number
+  component: string
+}
+
+export type AbcClass = 'A' | 'B' | 'C' | 'loss'
+
+export interface ParetoRow {
+  sku: string
+  product_name: string | null
+  units: number
+  gross_sales: number
+  net_profit: number
+  margin: number | null
+  share: number | null
+  cumulative_share: number | null
+  abc_class: AbcClass
+}
+
+export interface ParetoResponse {
+  metric: 'profit' | 'sales'
+  rows: ParetoRow[]
+  summary: Partial<Record<AbcClass, { products: number; value: number }>>
 }
 
 export interface Filters {
@@ -119,12 +146,18 @@ export const api = {
     authFetch(
       `/api/profit/timeseries${query({ interval, start: f.start, end: f.end, channel: f.channel })}`,
     ).then((r) => parse<{ interval: string; rows: ProfitRow[] }>(r)),
+  pareto: (metric: 'profit' | 'sales', f: Filters) =>
+    authFetch(`/api/profit/pareto${query({ metric, start: f.start, end: f.end, channel: f.channel })}`).then((r) =>
+      parse<ParetoResponse>(r),
+    ),
   products: () => authFetch('/api/products').then((r) => parse<Product[]>(r)),
-  updateCogs: (id: number, cogs_unit: number) =>
+  cogsHistory: (id: number) =>
+    authFetch(`/api/products/${id}/cogs-history`).then((r) => parse<CostHistoryEntry[]>(r)),
+  updateCogs: (id: number, cogs_unit: number, valid_from?: string) =>
     authFetch(`/api/products/${id}/cogs`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cogs_unit }),
+      body: JSON.stringify({ cogs_unit, valid_from: valid_from || null }),
     }).then((r) => parse<{ id: number; cogs_unit: number }>(r)),
   upload: (kind: 'orders' | 'ad-spend' | 'cogs' | 'shipping-labels', file: File) => {
     const body = new FormData()
