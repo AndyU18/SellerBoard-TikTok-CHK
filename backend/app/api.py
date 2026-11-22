@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import asdict
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from typing import Annotated, Literal
 
@@ -14,12 +14,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.alerts import build_alerts
 from app.auth import require
 from app.config import settings
-from app.connectors.redo import RedoClient, RedoError, sync_redo
-from app.connectors.tiktok_shop import TikTokShopClient, TikTokShopError
-from app.connectors.tiktok_shop_sync import sync_tiktok_shop
-from app.connectors.walmart import WalmartClient, WalmartError, sync_walmart
+from app.connectors.redo import RedoError
+from app.connectors.tiktok_shop import TikTokShopError
+from app.connectors.walmart import WalmartError
 from app.costs import load_cost_history, set_product_cost
 from app.db import get_session
 from app.gold import load_gold_frame, refresh_daily_profit
@@ -54,6 +54,7 @@ from app.reports import (
     samples_report,
     seller_performance_report,
 )
+from app.sync_jobs import run_source, sync_status
 
 router = APIRouter(prefix="/api")
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -169,34 +170,18 @@ async def sync_tiktok(
 ) -> dict:
     """Trae órdenes liquidadas de TikTok Shop de los últimos `days` días."""
     try:
-        report = await sync_tiktok_shop(session, TikTokShopClient(), days=days)
+        return await run_source(session, "tiktok_shop", days)
     except TikTokShopError as exc:
         raise HTTPException(502, {"problems": [str(exc)]}) from exc
-    await refresh_daily_profit(
-        session,
-        report.imported.touched_from or date.today() - timedelta(days=days + 1),
-        None,
-        reason="sync_tiktok_shop",
-    )
-    await session.commit()
-    return {
-        "days": report.days,
-        "stats": report.stats,
-        "imported": _public(report.imported),
-    }
 
 
 @router.post("/sync/redo", dependencies=[Depends(require("sync.run", writes=True))])
 async def sync_redo_labels(session: SessionDep) -> dict:
     """Trae de Redo (solo lectura) el costo real de las etiquetas, sin subir el CSV."""
     try:
-        result, stats = await sync_redo(session, RedoClient())
+        return await run_source(session, "redo", 0)
     except RedoError as exc:
         raise HTTPException(502, {"problems": [str(exc)]}) from exc
-    if result.touched_from:
-        await refresh_daily_profit(session, result.touched_from, result.touched_to, reason="sync_redo")
-    await session.commit()
-    return {**_public(result), "stats": asdict(stats)}
 
 
 @router.post("/sync/walmart",dependencies=[Depends(require("sync.run", writes=True))])
@@ -205,22 +190,21 @@ async def sync_walmart_orders(
 ) -> dict:
     """Trae órdenes de Walmart (solo lectura en Walmart) de los últimos `days` días."""
     try:
-        report = await sync_walmart(session, WalmartClient(), days=days)
+        return await run_source(session, "walmart", days)
     except WalmartError as exc:
         raise HTTPException(502, {"problems": [str(exc)]}) from exc
-    await refresh_daily_profit(
-        session,
-        report.imported.touched_from or date.today() - timedelta(days=days + 1),
-        None,
-        reason="sync_walmart",
-    )
-    await session.commit()
-    return {
-        "days": report.days,
-        "stats": report.stats,
-        "imported": _public(report.imported),
-        "problems": report.problems,
-    }
+
+
+@router.get("/sync/status", dependencies=[Depends(require("profit.view"))])
+async def sync_state(session: SessionDep) -> dict:
+    """Última ejecución de cada fuente y cuándo toca la siguiente."""
+    return await sync_status(session)
+
+
+@router.get("/alerts", dependencies=[Depends(require("profit.view"))])
+async def alerts(session: SessionDep) -> dict:
+    """Lo que requiere atención: pérdidas, inventario, desempeño, devoluciones y sincronización."""
+    return await build_alerts(session)
 
 
 @router.get("/profit", dependencies=[Depends(require("profit.view"))])

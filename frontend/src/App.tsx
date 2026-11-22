@@ -1,6 +1,7 @@
 import {
   BarChart3,
   Banknote,
+  Bell,
   Clock,
   Coins,
   Filter,
@@ -21,8 +22,11 @@ import { useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { ScopeBar } from '@/components/ScopeBar'
+import { loadAlerts } from '@/lib/alerts'
 import { useAuth } from '@/lib/auth'
 import { ScopeProvider } from '@/lib/scope'
+import { useAsync } from '@/lib/useAsync'
+import { Alerts } from '@/pages/Alerts'
 import { Cashflow } from '@/pages/Cashflow'
 import { Costs } from '@/pages/Costs'
 import { Creatives } from '@/pages/Creatives'
@@ -43,6 +47,7 @@ import { Versus } from '@/pages/Versus'
 
 type Page =
   | 'dashboard'
+  | 'alerts'
   | 'pareto'
   | 'versus'
   | 'promotions'
@@ -61,6 +66,7 @@ type Page =
 
 const NAV: { id: Page; label: string; icon: ReactNode; permission: string }[] = [
   { id: 'dashboard', label: 'Resumen ejecutivo', icon: <LayoutDashboard className="size-4" />, permission: 'profit.view' },
+  { id: 'alerts', label: 'Alertas', icon: <Bell className="size-4" />, permission: 'profit.view' },
   { id: 'pareto', label: 'Pareto ABC', icon: <BarChart3 className="size-4" />, permission: 'profit.view' },
   { id: 'versus', label: 'Versus', icon: <GitCompareArrows className="size-4" />, permission: 'profit.view' },
   { id: 'promotions', label: 'Promociones', icon: <Tag className="size-4" />, permission: 'profit.view' },
@@ -77,6 +83,23 @@ const NAV: { id: Page; label: string; icon: ReactNode; permission: string }[] = 
   { id: 'costs', label: 'Costos (COGS)', icon: <Coins className="size-4" />, permission: 'catalog.view' },
   { id: 'import', label: 'Importar', icon: <Upload className="size-4" />, permission: 'import.run' },
 ]
+
+/** Cuántas alertas críticas (o, si no hay, de atención) hay; se comparte la petición con la pantalla. */
+function AlertBadge() {
+  const alerts = useAsync(() => loadAlerts(), [])
+  const counts = alerts.data?.counts
+  const critical = counts?.critical ?? 0
+  const total = critical || (counts?.warning ?? 0)
+  if (!total) return null
+  return (
+    <span
+      className={`ml-auto rounded-full px-2 py-0.5 text-xs font-medium text-white ${critical ? 'bg-red-600' : 'bg-amber-500'}`}
+      title={critical ? `${critical} alertas críticas` : `${total} alertas de atención`}
+    >
+      {total}
+    </span>
+  )
+}
 
 function Centered({ children }: { children: ReactNode }) {
   return <div className="flex min-h-screen items-center justify-center p-6 text-center text-sm">{children}</div>
@@ -141,6 +164,7 @@ export default function App() {
             >
               {n.icon}
               {n.label}
+              {n.id === 'alerts' && <AlertBadge />}
             </button>
           ))}
         </nav>
@@ -173,6 +197,7 @@ export default function App() {
         {current !== 'import' && <ScopeBar />}
         <main className="flex-1 p-6">
           {current === 'dashboard' && <Dashboard />}
+          {current === 'alerts' && <Alerts />}
           {current === 'pareto' && <Pareto />}
           {current === 'versus' && <Versus />}
           {current === 'promotions' && <Promotions />}

@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import enum
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Computed,
     Date,
@@ -320,6 +321,22 @@ class TrafficDaily(Base):
     orders: Mapped[int | None]
     units: Mapped[int | None]
     gmv: Mapped[Decimal | None] = mapped_column(Money)
+
+
+class SyncRun(Base):
+    """Una ejecución de sincronización (manual o programada). Tabla ops.sync_run."""
+
+    __tablename__ = "sync_run"
+    __table_args__ = ({"schema": "ops"},)
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    job_type: Mapped[str] = mapped_column(String)  # tiktok_shop | walmart | redo
+    triggered_by: Mapped[str] = mapped_column(String, default="schedule")  # schedule | manual | import
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String, default="running")  # running | success | partial | failed
+    error: Mapped[str | None] = mapped_column(String)
+    stats: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class SellerPerformance(Base):

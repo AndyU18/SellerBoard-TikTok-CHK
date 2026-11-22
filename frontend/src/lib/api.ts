@@ -185,6 +185,42 @@ export interface ReturnsResponse {
   }[]
 }
 
+export type AlertSeverity = 'critical' | 'warning' | 'info'
+
+export interface AlertRow {
+  id: string
+  severity: AlertSeverity
+  category: string
+  title: string
+  detail: string
+  channel: string | null
+  sku: string | null
+}
+
+export interface AlertsResponse {
+  generated_at: string
+  counts: Record<AlertSeverity, number>
+  alerts: AlertRow[]
+}
+
+export interface SyncStatusResponse {
+  auto_enabled: boolean
+  interval_minutes: number
+  days: number
+  sources: {
+    source: string
+    label: string
+    configured: boolean
+    status: 'running' | 'success' | 'partial' | 'failed' | null
+    triggered_by: string | null
+    started_at: string | null
+    finished_at: string | null
+    error: string | null
+    next_due_at: string | null
+    overdue: boolean
+  }[]
+}
+
 export interface PerformanceWindow {
   window_days: number
   ots: number | null
@@ -483,6 +519,8 @@ export const api = {
     authFetch(`/api/creatives${query({ start: f.start, end: f.end, channel: f.channel, account: f.account })}`).then((r) => parse<CreativesResponse>(r)),
   cashflow: (f: Filters) =>
     authFetch(`/api/cashflow${query({ start: f.start, end: f.end, channel: f.channel, account: f.account })}`).then((r) => parse<CashflowResponse>(r)),
+  alerts: () => authFetch('/api/alerts').then((r) => parse<AlertsResponse>(r)),
+  syncStatus: () => authFetch('/api/sync/status').then((r) => parse<SyncStatusResponse>(r)),
   sellerPerformance: (f: Filters) =>
     authFetch(`/api/seller-performance${query({ channel: f.channel, account: f.account })}`).then((r) =>
       parse<SellerPerformanceResponse>(r),
