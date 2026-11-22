@@ -46,11 +46,13 @@ from app.reports import (
     creatives_report,
     dayparting_report,
     funnel_report,
+    inventory_report,
     live_report,
     logistics_report,
     promotions_report,
     returns_report,
     samples_report,
+    seller_performance_report,
 )
 
 router = APIRouter(prefix="/api")
@@ -213,7 +215,12 @@ async def sync_walmart_orders(
         reason="sync_walmart",
     )
     await session.commit()
-    return {"days": report.days, "stats": report.stats, "imported": _public(report.imported)}
+    return {
+        "days": report.days,
+        "stats": report.stats,
+        "imported": _public(report.imported),
+        "problems": report.problems,
+    }
 
 
 @router.get("/profit", dependencies=[Depends(require("profit.view"))])
@@ -365,6 +372,27 @@ async def cashflow(
 ) -> dict:
     """Liquidaciones de las plataformas: lo cobrado y lo que está por cobrar."""
     return await cashflow_report(session, start, end, channel, account)
+
+
+@router.get("/seller-performance", dependencies=[Depends(require("profit.view"))])
+async def seller_performance(
+    session: SessionDep,
+    channel: Channel | None = None,
+    account: str | None = None,
+) -> dict:
+    """Entrega a tiempo, guía válida, reembolsos y cancelaciones que informa la plataforma."""
+    return await seller_performance_report(session, channel, account)
+
+
+@router.get("/inventory", dependencies=[Depends(require("profit.view"))])
+async def inventory(
+    session: SessionDep,
+    channel: Channel | None = None,
+    account: str | None = None,
+    days: Annotated[int, Query(ge=7, le=90)] = 30,
+) -> dict:
+    """Existencias contra ritmo de venta: agotados, por agotarse, despublicados y sin rotación."""
+    return await inventory_report(session, channel, account, days)
 
 
 @router.post("/gold/refresh", dependencies=[Depends(require("sync.run", writes=True))])

@@ -54,7 +54,7 @@ export function Returns() {
         <h1 className="text-2xl font-semibold">Devoluciones y cancelaciones (RMA)</h1>
         <FilterBar preset={preset} onPreset={setPreset} />
       </div>
-      <ChannelOnlyNotice channels={['tiktok_shop']} what="Devoluciones y cancelaciones" />
+      <ChannelOnlyNotice channels={['tiktok_shop', 'walmart']} what="Devoluciones y cancelaciones" />
 
       {data.error && (
         <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
@@ -201,7 +201,7 @@ export function Returns() {
       </Card>
 
       <p className="text-muted-foreground max-w-3xl text-xs">
-        Por ahora solo TikTok Shop informa devoluciones y cancelaciones. Las solicitudes que el comprador retiró no
+        TikTok Shop informa devoluciones y cancelaciones; Walmart, solo devoluciones. Las solicitudes que el comprador retiró no
         cuentan. La tasa divide las unidades devueltas en el periodo entre las vendidas en el mismo periodo, así que
         puede variar un poco si la devolución llega después.
       </p>

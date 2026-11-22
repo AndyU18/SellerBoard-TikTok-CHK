@@ -28,6 +28,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.importers.persist import ImportResult, import_orders
+from app.ops_data import (
+    upsert_listing_stock,
+    upsert_return_cases,
+    upsert_seller_performance,
+)
 
 API_BASE = "https://marketplace.walmartapis.com"
 CHANNEL = "walmart"
@@ -146,6 +151,58 @@ class WalmartClient:
             # nextCursor ya trae la query completa ("?limit=..&nextCursor=..")
             path, params = "/v3/orders" + cursor, None
 
+    def _paged(
+        self,
+        path: str,
+        params: dict[str, Any],
+        items: Any,
+        cursor: Any,
+    ) -> Iterator[dict[str, Any]]:
+        """Recorre las páginas. El cursor llega como query completa ("?...") o como token suelto."""
+        url, query = path, dict(params)
+        while True:
+            body = self._get(url, query).json()
+            yield from items(body)
+            nxt = cursor(body)
+            if not nxt:
+                return
+            if nxt.startswith("?"):
+                url, query = path + nxt, None  # type: ignore[assignment]
+            else:
+                url, query = path, {**params, "nextCursor": nxt}
+
+    def iter_returns(self, start: datetime, end: datetime) -> Iterator[dict[str, Any]]:
+        yield from self._paged(
+            "/v3/returns",
+            {
+                "returnCreationStartDate": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "returnCreationEndDate": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "limit": PAGE_LIMIT,
+            },
+            lambda b: b.get("returnOrders", []),
+            lambda b: b.get("meta", {}).get("nextCursor"),
+        )
+
+    def seller_performance(self) -> dict[str, Any]:
+        """Indicadores del vendedor por ventana: {"7DAY": {...}, "30DAY": {...}, ...}."""
+        return self._get("/v3/report/payment/performance").json().get("payload", {})
+
+    def iter_items(self) -> Iterator[dict[str, Any]]:
+        yield from self._paged(
+            "/v3/items",
+            {"limit": PAGE_LIMIT},
+            lambda b: b.get("ItemResponse", []),
+            lambda b: b.get("nextCursor"),
+        )
+
+    def iter_inventories(self) -> Iterator[dict[str, Any]]:
+        yield from self._paged(
+            "/v3/inventories",
+            {"limit": 50},
+            lambda b: b.get("elements", {}).get("inventories", []),
+            lambda b: b.get("meta", {}).get("nextCursor"),
+        )
+
     def recon_dates(self) -> list[date]:
         body = self._get(
             "/v3/report/reconreport/availableReconFiles", {"reportVersion": "v1"}
@@ -202,14 +259,33 @@ def _recon_index(
     return commission, labels, other
 
 
+REFUNDED_STATUSES = {"COMPLETED"}
+
+
+def _return_refunds(cases: list[dict[str, Any]] | None) -> dict[tuple[str, str], float]:
+    """Reembolso ya pagado por (orden, sku), según las devoluciones completadas.
+
+    La API de órdenes casi no trae reembolsos, así que sin esto la utilidad ignora las devoluciones.
+    """
+    refunds: dict[tuple[str, str], float] = defaultdict(float)
+    for case in cases or []:
+        if case["status"] not in REFUNDED_STATUSES:
+            continue
+        for line in case["lines"]:
+            refunds[(case["external_order_id"], line["sku"])] += line["refund_total"]
+    return refunds
+
+
 def build_order_lines(
     orders: list[dict[str, Any]],
     recon: list[dict[str, str]],
     account: str = DEFAULT_ACCOUNT,
     commission_rate: float = DEFAULT_COMMISSION_RATE,
+    returns: list[dict[str, Any]] | None = None,
 ) -> tuple[pl.DataFrame, dict[str, int]]:
-    """Devuelve (líneas canónicas, estadísticas)."""
+    """Devuelve (líneas canónicas, estadísticas). `returns` son casos de `build_return_cases`."""
     commission, labels, other_adjustments = _recon_index(recon)
+    returned = _return_refunds(returns)
     stats = {
         "orders_seen": 0,
         "orders_cancelled": 0,
@@ -283,11 +359,164 @@ def build_order_lines(
                     "promo": 0.0,
                     "platform_fees": max(fee, 0.0),
                     "shipping_cost": max(label, 0.0) * share,
-                    "refund_amount": g["refund"],
+                    # Lo que informa la orden y lo de las devoluciones es lo mismo: no se suman.
+                    "refund_amount": max(g["refund"], returned.get((order_id, sku), 0.0)),
                     "ordered_at": ordered_at,
                 }
             )
     return pl.DataFrame(rows, schema=OUT_SCHEMA), stats
+
+
+def _ts(value: Any) -> datetime | None:
+    """Fecha de Walmart: epoch en milisegundos o texto ISO 8601."""
+    if value in (None, ""):
+        return None
+    try:
+        if isinstance(value, (int, float)) or str(value).isdigit():
+            return datetime.fromtimestamp(int(value) / 1000, tz=UTC)
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _amount(node: Any) -> float:
+    return _f((node or {}).get("currencyAmount"))
+
+
+def build_return_cases(returns: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Devoluciones de Walmart al formato de `upsert_return_cases`.
+
+    El reembolso es el precio del artículo (sin impuesto), igual que el reembolso por línea de la
+    orden. Si el comprador cancela la devolución, el estado termina en `_CANCEL` y el reporte la
+    excluye.
+    """
+    cases: list[dict[str, Any]] = []
+    for r in returns:
+        order_lines = r.get("returnOrderLines") or []
+        lines: dict[str, dict[str, Any]] = {}
+        statuses: list[str] = []
+        updated: datetime | None = None
+        reason: str | None = None
+        for ln in order_lines:
+            item = ln.get("item") or {}
+            sku = (item.get("sku") or "(sin sku)").strip()
+            units = int(_f((ln.get("quantity") or {}).get("measurementValue")) or 1)
+            price = sum(
+                _amount(ch.get("chargePerUnit"))
+                for ch in ln.get("charges") or []
+                if ch.get("chargeName") == "ItemPrice"
+            ) or _amount(ln.get("unitPrice"))
+            g = lines.setdefault(
+                sku,
+                {"sku": sku, "product_name": item.get("productName"), "units": 0, "refund_total": 0.0},
+            )
+            g["units"] += units
+            g["refund_total"] += price * units
+            if ln.get("status"):
+                statuses.append(str(ln["status"]))
+            reason = reason or ln.get("returnReason")
+            seen = _ts(ln.get("statusTime"))
+            if seen and (updated is None or seen > updated):
+                updated = seen
+        created = _ts(r.get("returnOrderDate"))
+        if created is None or not lines:
+            continue
+        status = statuses[-1] if statuses else None
+        if status and "CANCEL" in status.upper():
+            status = "BUYER_CANCEL"
+        cases.append(
+            {
+                "external_id": str(r["returnOrderId"]),
+                "kind": "return",
+                "case_type": r.get("refundMode") or "RETURN",
+                "status": status,
+                "reason": reason,
+                "reason_code": reason,
+                "initiated_by": "buyer",
+                "external_order_id": str(r.get("customerOrderId") or ""),
+                "case_date": created.date(),
+                "created_at": created,
+                "updated_at": updated or created,
+                "refund_total": sum(g["refund_total"] for g in lines.values()),
+                "lines": list(lines.values()),
+            }
+        )
+    return cases
+
+
+def build_performance(payload: dict[str, Any], today: date | None = None) -> list[dict[str, Any]]:
+    """Una fila por ventana ("30DAY" -> 30) con la foto de hoy."""
+    day = today or datetime.now(UTC).date()
+    rows: list[dict[str, Any]] = []
+    for key, v in payload.items():
+        digits = "".join(ch for ch in key if ch.isdigit())
+        if not digits or not isinstance(v, dict):
+            continue
+        rows.append(
+            {
+                "snapshot_date": day,
+                "window_days": int(digits),
+                "ots": v.get("ots"),
+                "otd": v.get("otd"),
+                "vtr": v.get("vtr"),
+                "refund_rate_seller_fault": v.get("refundRateSellerFault"),
+                "refund_rate_customer_fault": v.get("refundRateCustomerFault"),
+                "cancellation_seller_fault": v.get("cancellationSellerFault"),
+                "cancellation_customer_fault": v.get("cancellationCustomerFault"),
+            }
+        )
+    return sorted(rows, key=lambda r: r["window_days"])
+
+
+def build_listing_stock(
+    items: list[dict[str, Any]], inventories: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Une catálogo (precio, publicación) con existencias sumando todos los nodos de envío."""
+    stock: dict[str, dict[str, int]] = {}
+    for inv in inventories:
+        sku = (inv.get("sku") or "").strip()
+        if not sku:
+            continue
+        s = stock.setdefault(sku, {"avail": 0, "reserved": 0, "input": 0})
+        for node in inv.get("nodes") or []:
+            s["avail"] += int(_f((node.get("availToSellQty") or {}).get("amount")))
+            s["reserved"] += int(_f((node.get("reservedQty") or {}).get("amount")))
+            s["input"] += int(_f((node.get("inputQty") or {}).get("amount")))
+
+    rows: dict[str, dict[str, Any]] = {}
+    for it in items:
+        sku = (it.get("sku") or "").strip()
+        if not sku:
+            continue
+        reasons = (it.get("unpublishedReasons") or {}).get("reason") or []
+        rows[sku] = {
+            "sku": sku,
+            "product_name": it.get("productName"),
+            "price": (it.get("price") or {}).get("amount"),
+            "availability": it.get("availability"),
+            "published_status": it.get("publishedStatus"),
+            "lifecycle_status": it.get("lifecycleStatus"),
+            "unpublished_reasons": "; ".join(reasons) or None,
+        }
+    for sku in stock.keys() | rows.keys():
+        row = rows.setdefault(
+            sku,
+            {
+                "sku": sku,
+                "product_name": None,
+                "price": None,
+                "availability": None,
+                "published_status": None,
+                "lifecycle_status": None,
+                "unpublished_reasons": None,
+            },
+        )
+        s = stock.get(sku)
+        row["avail_to_sell"] = s["avail"] if s else None
+        row["reserved"] = s["reserved"] if s else None
+        row["input_qty"] = s["input"] if s else None
+    return sorted(rows.values(), key=lambda r: r["sku"])
 
 
 @dataclass
@@ -295,6 +524,35 @@ class SyncReport:
     days: int
     stats: dict[str, int] = field(default_factory=dict)
     imported: ImportResult = field(default_factory=ImportResult)
+    problems: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Extras:
+    returns: list[dict[str, Any]] = field(default_factory=list)
+    performance: dict[str, Any] = field(default_factory=dict)
+    items: list[dict[str, Any]] = field(default_factory=list)
+    inventories: list[dict[str, Any]] = field(default_factory=list)
+    problems: list[str] = field(default_factory=list)
+
+
+def fetch_extras(client: WalmartClient, days: int) -> Extras:
+    """Devoluciones, desempeño y existencias. Un fallo en uno no detiene a los demás."""
+    out = Extras()
+    end = datetime.now(UTC)
+    start = end - timedelta(days=days)
+    steps = (
+        ("devoluciones", lambda: setattr(out, "returns", list(client.iter_returns(start, end)))),
+        ("desempeño", lambda: setattr(out, "performance", client.seller_performance())),
+        ("catálogo", lambda: setattr(out, "items", list(client.iter_items()))),
+        ("inventario", lambda: setattr(out, "inventories", list(client.iter_inventories()))),
+    )
+    for name, step in steps:
+        try:
+            step()
+        except WalmartError as exc:
+            out.problems.append(f"{name}: {exc}")
+    return out
 
 
 def fetch_window(
@@ -320,7 +578,17 @@ async def sync_walmart(
     account: str = DEFAULT_ACCOUNT,
 ) -> SyncReport:
     orders, recon = await asyncio.to_thread(fetch_window, client, days)
-    frame, stats = build_order_lines(orders, recon, account)
+    extras = await asyncio.to_thread(fetch_extras, client, days)
+    cases = build_return_cases(extras.returns)
+    frame, stats = build_order_lines(orders, recon, account, returns=cases)
     imported = await import_orders(session, frame) if frame.height else ImportResult()
+
+    performance = build_performance(extras.performance)
+    listings = build_listing_stock(extras.items, extras.inventories)
+    stats["return_cases"] = await upsert_return_cases(session, CHANNEL, account, cases)
+    stats["performance_windows"] = await upsert_seller_performance(
+        session, CHANNEL, account, performance
+    )
+    stats["listings"] = await upsert_listing_stock(session, CHANNEL, account, listings)
     await session.commit()
-    return SyncReport(days=days, stats=stats, imported=imported)
+    return SyncReport(days=days, stats=stats, imported=imported, problems=extras.problems)

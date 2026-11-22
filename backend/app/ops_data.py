@@ -15,11 +15,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import (
     Account,
     AffiliateOrder,
+    ListingStock,
     LiveSession,
     ReturnCase,
     ReturnCaseLine,
     SampleApplication,
     SampleLine,
+    SellerPerformance,
     Shipment,
     TrafficDaily,
     VideoPerformance,
@@ -162,6 +164,37 @@ async def _upsert_keyed(
             setattr(found, k, v)
     await session.flush()
     return len(rows)
+
+
+PERFORMANCE_MONEY = (
+    "ots",
+    "otd",
+    "vtr",
+    "refund_rate_seller_fault",
+    "refund_rate_customer_fault",
+    "cancellation_seller_fault",
+    "cancellation_customer_fault",
+)
+
+
+async def upsert_seller_performance(
+    session: AsyncSession, channel: str, account_name: str, rows: list[dict[str, Any]]
+) -> int:
+    if not rows:
+        return 0
+    account = await ensure_account(session, channel, account_name)
+    return await _upsert_keyed(
+        session, SellerPerformance, account, ("snapshot_date", "window_days"), rows, PERFORMANCE_MONEY
+    )
+
+
+async def upsert_listing_stock(
+    session: AsyncSession, channel: str, account_name: str, rows: list[dict[str, Any]]
+) -> int:
+    if not rows:
+        return 0
+    account = await ensure_account(session, channel, account_name)
+    return await _upsert_keyed(session, ListingStock, account, ("sku",), rows, ("price",))
 
 
 async def upsert_sample_applications(

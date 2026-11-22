@@ -7,6 +7,7 @@ import {
   GitCompareArrows,
   Gift,
   LayoutDashboard,
+  Warehouse,
   LogOut,
   Package,
   Radio,
@@ -29,6 +30,7 @@ import { Dashboard } from '@/pages/Dashboard'
 import { Dayparting } from '@/pages/Dayparting'
 import { Funnel } from '@/pages/Funnel'
 import { Import } from '@/pages/Import'
+import { Inventory } from '@/pages/Inventory'
 import { Live } from '@/pages/Live'
 import { Login } from '@/pages/Login'
 import { Logistics } from '@/pages/Logistics'
@@ -48,6 +50,7 @@ type Page =
   | 'cashflow'
   | 'returns'
   | 'logistics'
+  | 'inventory'
   | 'samples'
   | 'creatives'
   | 'funnel'
@@ -65,6 +68,7 @@ const NAV: { id: Page; label: string; icon: ReactNode; permission: string }[] = 
   { id: 'cashflow', label: 'Flujo de caja', icon: <Banknote className="size-4" />, permission: 'profit.view' },
   { id: 'returns', label: 'Devoluciones', icon: <Undo2 className="size-4" />, permission: 'profit.view' },
   { id: 'logistics', label: 'Logística', icon: <Truck className="size-4" />, permission: 'profit.view' },
+  { id: 'inventory', label: 'Inventario', icon: <Warehouse className="size-4" />, permission: 'profit.view' },
   { id: 'samples', label: 'Muestras', icon: <Gift className="size-4" />, permission: 'profit.view' },
   { id: 'creatives', label: 'Creativos', icon: <Video className="size-4" />, permission: 'profit.view' },
   { id: 'funnel', label: 'Embudo', icon: <Filter className="size-4" />, permission: 'profit.view' },
@@ -176,6 +180,7 @@ export default function App() {
           {current === 'cashflow' && <Cashflow />}
           {current === 'returns' && <Returns />}
           {current === 'logistics' && <Logistics />}
+          {current === 'inventory' && <Inventory />}
           {current === 'samples' && <Samples />}
           {current === 'creatives' && <Creatives />}
           {current === 'funnel' && <Funnel />}

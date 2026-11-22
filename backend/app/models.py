@@ -322,6 +322,48 @@ class TrafficDaily(Base):
     gmv: Mapped[Decimal | None] = mapped_column(Money)
 
 
+class SellerPerformance(Base):
+    """Foto diaria de los indicadores del vendedor por ventana (7/14/30/60/90 días), en %."""
+
+    __tablename__ = "seller_performance"
+    __table_args__ = (
+        UniqueConstraint("account_id", "snapshot_date", "window_days"),
+        {"schema": "sales"},
+    )
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("sales.account.id"))
+    snapshot_date: Mapped[date] = mapped_column(Date, index=True)
+    window_days: Mapped[int]
+    ots: Mapped[Decimal | None] = mapped_column(Money)
+    otd: Mapped[Decimal | None] = mapped_column(Money)
+    vtr: Mapped[Decimal | None] = mapped_column(Money)
+    refund_rate_seller_fault: Mapped[Decimal | None] = mapped_column(Money)
+    refund_rate_customer_fault: Mapped[Decimal | None] = mapped_column(Money)
+    cancellation_seller_fault: Mapped[Decimal | None] = mapped_column(Money)
+    cancellation_customer_fault: Mapped[Decimal | None] = mapped_column(Money)
+
+
+class ListingStock(Base):
+    """Estado actual de un SKU publicado: precio, publicación y existencias."""
+
+    __tablename__ = "listing_stock"
+    __table_args__ = (UniqueConstraint("account_id", "sku"), {"schema": "sales"})
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("sales.account.id"))
+    sku: Mapped[str] = mapped_column(String)
+    product_name: Mapped[str | None] = mapped_column(String)
+    price: Mapped[Decimal | None] = mapped_column(Money)
+    availability: Mapped[str | None] = mapped_column(String)
+    published_status: Mapped[str | None] = mapped_column(String)
+    lifecycle_status: Mapped[str | None] = mapped_column(String)
+    unpublished_reasons: Mapped[str | None] = mapped_column(String)
+    avail_to_sell: Mapped[int | None]
+    reserved: Mapped[int | None]
+    input_qty: Mapped[int | None]
+
+
 class LiveSession(Base):
     """Transmisión LIVE (propia o de un creador) con sus ventas."""
 

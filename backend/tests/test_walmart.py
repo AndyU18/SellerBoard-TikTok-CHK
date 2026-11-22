@@ -146,6 +146,18 @@ class FakeClient:
     def recon_rows(self, report_date):
         return RECON
 
+    def iter_returns(self, start, end):
+        return iter(())
+
+    def seller_performance(self):
+        return {}
+
+    def iter_items(self):
+        return iter(())
+
+    def iter_inventories(self):
+        return iter(())
+
 
 @pytest.mark.asyncio
 async def test_sync_is_idempotent_and_creates_walmart_account(maker):

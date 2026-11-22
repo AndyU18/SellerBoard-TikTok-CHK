@@ -185,6 +185,53 @@ export interface ReturnsResponse {
   }[]
 }
 
+export interface PerformanceWindow {
+  window_days: number
+  ots: number | null
+  otd: number | null
+  vtr: number | null
+  refund_rate_seller_fault: number | null
+  refund_rate_customer_fault: number | null
+  cancellation_seller_fault: number | null
+  cancellation_customer_fault: number | null
+}
+
+export interface SellerPerformanceResponse {
+  targets: Record<string, number>
+  accounts: { account: string; channel: string; snapshot_date: string; windows: PerformanceWindow[] }[]
+  history: ({ account: string; snapshot_date: string } & Omit<PerformanceWindow, 'window_days'>)[]
+}
+
+export type StockStatus = 'out_of_stock' | 'unpublished' | 'low' | 'no_stock' | 'no_sales' | 'ok'
+
+export interface InventoryResponse {
+  days: number
+  low_cover_days: number
+  summary: {
+    skus: number
+    units_in_stock: number
+    stock_retail_value: number
+    daily_sales_at_risk: number
+  } & Record<StockStatus, number>
+  rows: {
+    account: string
+    channel: string
+    sku: string
+    product_name: string | null
+    price: number | null
+    published_status: string | null
+    lifecycle_status: string | null
+    unpublished_reasons: string | null
+    avail_to_sell: number | null
+    reserved: number | null
+    units_sold: number
+    sales: number
+    daily_units: number
+    days_of_cover: number | null
+    status: StockStatus
+  }[]
+}
+
 export interface LogisticsResponse {
   summary: {
     shipments: number
@@ -436,6 +483,12 @@ export const api = {
     authFetch(`/api/creatives${query({ start: f.start, end: f.end, channel: f.channel, account: f.account })}`).then((r) => parse<CreativesResponse>(r)),
   cashflow: (f: Filters) =>
     authFetch(`/api/cashflow${query({ start: f.start, end: f.end, channel: f.channel, account: f.account })}`).then((r) => parse<CashflowResponse>(r)),
+  sellerPerformance: (f: Filters) =>
+    authFetch(`/api/seller-performance${query({ channel: f.channel, account: f.account })}`).then((r) =>
+      parse<SellerPerformanceResponse>(r),
+    ),
+  inventory: (f: Filters) =>
+    authFetch(`/api/inventory${query({ channel: f.channel, account: f.account })}`).then((r) => parse<InventoryResponse>(r)),
   accounts: () => authFetch('/api/accounts').then((r) => parse<AccountRow[]>(r)),
   products: () => authFetch('/api/products').then((r) => parse<Product[]>(r)),
   cogsHistory: (id: number) =>

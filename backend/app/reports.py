@@ -8,7 +8,7 @@ utilidad, la cruzan con la capa oro.
 from __future__ import annotations
 
 import statistics
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import polars as pl
@@ -21,6 +21,7 @@ from app.models import (
     Account,
     AffiliateOrder,
     Channel,
+    ListingStock,
     LiveSession,
     OrderLine,
     Product,
@@ -29,6 +30,7 @@ from app.models import (
     SalesOrder,
     SampleApplication,
     SampleLine,
+    SellerPerformance,
     Settlement,
     Shipment,
     ShippingLabelCost,
@@ -60,6 +62,153 @@ def _f(value: object) -> float:
 
 def _ratio(num: float, den: float) -> float | None:
     return num / den if den > 0 else None
+
+
+# Metas de referencia (%): conviene confirmarlas en el Seller Center de cada plataforma.
+PERFORMANCE_TARGETS = {"otd": 95.0, "ots": 99.0, "vtr": 99.0, "cancellation_seller_fault": 2.0}
+PERFORMANCE_FIELDS = (
+    "ots",
+    "otd",
+    "vtr",
+    "refund_rate_seller_fault",
+    "refund_rate_customer_fault",
+    "cancellation_seller_fault",
+    "cancellation_customer_fault",
+)
+LOW_COVER_DAYS = 14  # menos de estos días de inventario = "por agotarse"
+STOCK_ORDER = ("out_of_stock", "unpublished", "low", "no_stock", "no_sales", "ok")
+
+
+async def seller_performance_report(
+    session: AsyncSession,
+    channel: Channel | None = None,
+    account: str | None = None,
+) -> dict:
+    """Indicadores del vendedor: última foto por ventana y evolución de la ventana de 30 días."""
+    query = (
+        select(SellerPerformance, Account.name, Account.channel_code)
+        .join(Account, SellerPerformance.account_id == Account.id)
+        .order_by(SellerPerformance.snapshot_date.desc(), SellerPerformance.window_days)
+    )
+    if channel:
+        query = query.where(Account.channel_code == channel.value)
+    if account:
+        query = query.where(Account.name == account)
+
+    latest: dict[str, dict] = {}
+    history: dict[tuple[str, date], dict] = {}
+    for perf, name, chan in (await session.execute(query)).all():
+        acc = latest.setdefault(
+            name, {"account": name, "channel": chan, "snapshot_date": perf.snapshot_date, "windows": []}
+        )
+        if perf.snapshot_date == acc["snapshot_date"]:
+            acc["windows"].append(
+                {"window_days": perf.window_days, **{f: _f_or_none(getattr(perf, f)) for f in PERFORMANCE_FIELDS}}
+            )
+        if perf.window_days == 30:
+            history[(name, perf.snapshot_date)] = {
+                "account": name,
+                "snapshot_date": perf.snapshot_date,
+                **{f: _f_or_none(getattr(perf, f)) for f in PERFORMANCE_FIELDS},
+            }
+    return {
+        "targets": PERFORMANCE_TARGETS,
+        "accounts": sorted(latest.values(), key=lambda a: a["account"]),
+        "history": sorted(history.values(), key=lambda h: (h["account"], h["snapshot_date"])),
+    }
+
+
+def _f_or_none(value: object) -> float | None:
+    return None if value is None else float(value)  # type: ignore[arg-type]
+
+
+async def inventory_report(
+    session: AsyncSession,
+    channel: Channel | None = None,
+    account: str | None = None,
+    days: int = 30,
+    today: date | None = None,
+) -> dict:
+    """Existencias por SKU contra el ritmo de venta: agotados, por agotarse, despublicados y sin rotación."""
+    today = today or datetime.now(UTC).date()
+    ids = await _scope_ids(session, channel, account)
+
+    stock_q = (
+        select(ListingStock, Account.name, Account.channel_code)
+        .join(Account, ListingStock.account_id == Account.id)
+    )
+    sold_q = (
+        select(OrderLine.account_id, Product.sku, func.sum(OrderLine.units), func.sum(OrderLine.gross_sales))
+        .join(Product, OrderLine.product_id == Product.id)
+        .where(OrderLine.order_date > today - timedelta(days=days))
+        .group_by(OrderLine.account_id, Product.sku)
+    )
+    if ids is not None:
+        stock_q = stock_q.where(ListingStock.account_id.in_(ids))
+        sold_q = sold_q.where(OrderLine.account_id.in_(ids))
+    sold = {
+        (acc, sku): (int(units or 0), _f(gross))
+        for acc, sku, units, gross in (await session.execute(sold_q)).all()
+    }
+
+    rows: list[dict] = []
+    for ls, name, chan in (await session.execute(stock_q)).all():
+        units, gross = sold.get((ls.account_id, ls.sku), (0, 0.0))
+        avail = ls.avail_to_sell
+        daily = units / days
+        cover = avail / daily if daily > 0 and avail is not None else None
+        published = (ls.published_status or "").upper() == "PUBLISHED"
+        if not published:
+            status = "unpublished"
+        elif (avail or 0) == 0 and units > 0:
+            status = "out_of_stock"
+        elif (avail or 0) == 0:
+            status = "no_stock"
+        elif cover is not None and cover < LOW_COVER_DAYS:
+            status = "low"
+        elif units == 0:
+            status = "no_sales"
+        else:
+            status = "ok"
+        rows.append(
+            {
+                "account": name,
+                "channel": chan,
+                "sku": ls.sku,
+                "product_name": ls.product_name,
+                "price": _f_or_none(ls.price),
+                "published_status": ls.published_status,
+                "lifecycle_status": ls.lifecycle_status,
+                "unpublished_reasons": ls.unpublished_reasons,
+                "avail_to_sell": avail,
+                "reserved": ls.reserved,
+                "units_sold": units,
+                "sales": gross,
+                "daily_units": daily,
+                "days_of_cover": cover,
+                "status": status,
+            }
+        )
+    rows.sort(
+        key=lambda r: (
+            STOCK_ORDER.index(r["status"]),
+            -r["sales"] if r["status"] == "out_of_stock" else (r["days_of_cover"] or 0),
+            r["sku"],
+        )
+    )
+    counts = {s: sum(1 for r in rows if r["status"] == s) for s in STOCK_ORDER}
+    return {
+        "days": days,
+        "low_cover_days": LOW_COVER_DAYS,
+        "summary": {
+            "skus": len(rows),
+            **counts,
+            "units_in_stock": sum(r["avail_to_sell"] or 0 for r in rows),
+            "stock_retail_value": sum((r["avail_to_sell"] or 0) * (r["price"] or 0) for r in rows),
+            "daily_sales_at_risk": sum(r["sales"] / days for r in rows if r["status"] == "out_of_stock"),
+        },
+        "rows": rows,
+    }
 
 
 # ---------------------------------------------------------------- promociones y subsidios
