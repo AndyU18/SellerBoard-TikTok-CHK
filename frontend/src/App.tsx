@@ -10,17 +10,23 @@ import {
   GitCompareArrows,
   Gift,
   LayoutDashboard,
+  Download,
+  Link2,
   LogOut,
+  Mail,
   Package,
   Radio,
   Scale,
   ScrollText,
   Ship,
+  ShieldCheck,
+  Sparkles,
   Tag,
   TrendingUp,
   Truck,
   Undo2,
   Upload,
+  Users as UsersIcon,
   Video,
   Warehouse,
 } from 'lucide-react'
@@ -33,7 +39,12 @@ import { useAuth } from '@/lib/auth'
 import { ScopeProvider } from '@/lib/scope'
 import { useAsync } from '@/lib/useAsync'
 import { Alerts } from '@/pages/Alerts'
+import { Assistant } from '@/pages/Assistant'
 import { Cashflow } from '@/pages/Cashflow'
+import { DataQuality } from '@/pages/DataQuality'
+import { ExportCenter } from '@/pages/Export'
+import { Notifications } from '@/pages/Notifications'
+import { SkuManager } from '@/pages/SkuManager'
 import { Costs } from '@/pages/Costs'
 import { Creatives } from '@/pages/Creatives'
 import { Dashboard } from '@/pages/Dashboard'
@@ -55,13 +66,20 @@ import { Reorder } from '@/pages/Reorder'
 import { Returns } from '@/pages/Returns'
 import { Samples } from '@/pages/Samples'
 import { Tariffs } from '@/pages/Tariffs'
+import { Users } from '@/pages/Users'
 import { Versus } from '@/pages/Versus'
 
 type Page =
   | 'dashboard'
   | 'alerts'
+  | 'assistant'
   | 'forecast'
   | 'pnl'
+  | 'skus'
+  | 'quality'
+  | 'notifications'
+  | 'export'
+  | 'users'
   | 'pareto'
   | 'versus'
   | 'pricing'
@@ -89,6 +107,7 @@ const icon = 'size-4'
 const NAV: NavItem[] = [
   { group: 'Resumen', id: 'dashboard', label: 'Resumen ejecutivo', icon: <LayoutDashboard className={icon} />, permission: 'profit.view' },
   { group: 'Resumen', id: 'alerts', label: 'Alertas', icon: <Bell className={icon} />, permission: 'profit.view' },
+  { group: 'Resumen', id: 'assistant', label: 'Asistente', icon: <Sparkles className={icon} />, permission: 'profit.view' },
   { group: 'Resumen', id: 'forecast', label: 'Pronóstico y metas', icon: <TrendingUp className={icon} />, permission: 'profit.view' },
   { group: 'Resumen', id: 'pnl', label: 'Estado de resultados', icon: <ScrollText className={icon} />, permission: 'profit.view' },
   { group: 'Rentabilidad', id: 'pareto', label: 'Pareto ABC', icon: <BarChart3 className={icon} />, permission: 'profit.view' },
@@ -108,8 +127,13 @@ const NAV: NavItem[] = [
   { group: 'Creadores y tráfico', id: 'funnel', label: 'Embudo', icon: <Filter className={icon} />, permission: 'profit.view' },
   { group: 'Creadores y tráfico', id: 'live', label: 'LIVE', icon: <Radio className={icon} />, permission: 'profit.view' },
   { group: 'Catálogo y datos', id: 'products', label: 'Productos', icon: <Package className={icon} />, permission: 'catalog.view' },
+  { group: 'Catálogo y datos', id: 'skus', label: 'Gestor de SKU', icon: <Link2 className={icon} />, permission: 'catalog.view' },
+  { group: 'Catálogo y datos', id: 'quality', label: 'Calidad de datos', icon: <ShieldCheck className={icon} />, permission: 'profit.view' },
+  { group: 'Catálogo y datos', id: 'notifications', label: 'Notificaciones', icon: <Mail className={icon} />, permission: 'settings.view' },
   { group: 'Catálogo y datos', id: 'costs', label: 'Costos (COGS)', icon: <Coins className={icon} />, permission: 'catalog.view' },
+  { group: 'Catálogo y datos', id: 'export', label: 'Exportar', icon: <Download className={icon} />, permission: 'profit.view' },
   { group: 'Catálogo y datos', id: 'import', label: 'Importar', icon: <Upload className={icon} />, permission: 'import.run' },
+  { group: 'Administración', id: 'users', label: 'Usuarios', icon: <UsersIcon className={icon} />, permission: 'users.view' },
 ]
 
 /** Cuántas alertas críticas (o, si no hay, de atención) hay; se comparte la petición con la pantalla. */
@@ -172,6 +196,10 @@ export default function App() {
     )
   }
   const current = nav.some((n) => n.id === page) ? page : nav[0].id
+  // Las pantallas pueden mandar al usuario a otra (p. ej. Calidad de datos -> Costos); solo si tiene permiso.
+  const navigate = (id: string) => {
+    if (nav.some((n) => n.id === id)) setPage(id as Page)
+  }
 
   return (
     <ScopeProvider>
@@ -232,7 +260,13 @@ export default function App() {
         <main className="flex-1 p-6">
           {current === 'dashboard' && <Dashboard />}
           {current === 'alerts' && <Alerts />}
+          {current === 'assistant' && <Assistant />}
           {current === 'forecast' && <Forecast />}
+          {current === 'skus' && <SkuManager />}
+          {current === 'quality' && <DataQuality onNavigate={(p) => navigate(p)} />}
+          {current === 'notifications' && <Notifications />}
+          {current === 'export' && <ExportCenter />}
+          {current === 'users' && <Users />}
           {current === 'pnl' && <Pnl />}
           {current === 'pareto' && <Pareto />}
           {current === 'versus' && <Versus />}

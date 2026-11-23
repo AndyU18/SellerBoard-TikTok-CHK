@@ -325,6 +325,33 @@ class TrafficDaily(Base):
     gmv: Mapped[Decimal | None] = mapped_column(Money)
 
 
+class SkuAlias(Base):
+    """SKU que llega de una plataforma y el producto maestro al que pertenece (catalog.sku_alias)."""
+
+    __tablename__ = "sku_alias"
+    __table_args__ = ({"schema": "catalog"},)
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    alias: Mapped[str] = mapped_column(String, unique=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("catalog.product.id"), index=True)
+    reason: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class NotificationLog(Base):
+    """Un intento de envío del resumen (diario, semanal o de prueba) por un canal (ops.notification_log)."""
+
+    __tablename__ = "notification_log"
+    __table_args__ = ({"schema": "ops"},)
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    kind: Mapped[str] = mapped_column(String)  # daily | weekly | test
+    channel: Mapped[str] = mapped_column(String)  # email | slack | webhook
+    status: Mapped[str] = mapped_column(String)  # sent | failed | skipped
+    detail: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
 class ExpenseCategory(Base):
     """Categoría de gasto indirecto (software, nómina, bodega...). Tabla finance.expense_category."""
 

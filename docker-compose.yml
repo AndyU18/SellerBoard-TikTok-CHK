@@ -1,0 +1,30 @@
+# CHK Profit completo con un comando:   docker compose up -d --build
+# Antes: crea backend/.env (plantilla: backend/.env.example) y un .env en esta carpeta con
+#   VITE_SUPABASE_URL=...   y   VITE_SUPABASE_PUBLISHABLE_KEY=...   (ambas públicas)
+# La aplicación queda en http://localhost:8080
+services:
+  backend:
+    build: ./backend
+    env_file: ./backend/.env
+    environment:
+      TTS_TOKENS_FILE: /data/tts_tokens.json
+    volumes:
+      - chk_data:/data
+    restart: unless-stopped
+    # Sin puertos publicados: solo el frontend (nginx) habla con el backend dentro de la red de compose.
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:?define VITE_SUPABASE_URL en el .env de esta carpeta}
+        VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY:?define VITE_SUPABASE_PUBLISHABLE_KEY en el .env de esta carpeta}
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  chk_data:

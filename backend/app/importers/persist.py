@@ -25,7 +25,26 @@ from app.models import (
     Product,
     ProductCostHistory,
     SalesOrder,
+    SkuAlias,
 )
+
+
+async def _alias_products(
+    session: AsyncSession, products: dict[str, Product]
+) -> dict[str, Product]:
+    """alias -> producto maestro (una sola consulta por importación).
+
+    Un SKU registrado como alias (p. ej. tras fusionar duplicados) debe caer en el producto maestro
+    y no crear uno nuevo. `products` es el catálogo ya cargado, por SKU.
+    """
+    by_id = {p.id: p for p in products.values()}
+    return {
+        alias: by_id[product_id]
+        for alias, product_id in (
+            await session.execute(select(SkuAlias.alias, SkuAlias.product_id))
+        ).all()
+        if product_id in by_id
+    }
 
 
 @dataclass
@@ -66,6 +85,7 @@ class _Resolver:
         self._loaded = False
         self._accounts: dict[tuple[str, str], Account] = {}
         self._products: dict[str, Product] = {}
+        self._aliases: dict[str, Product] = {}
         self._listings: dict[tuple[int, str], int] = {}
 
     async def _load(self) -> None:
@@ -78,6 +98,7 @@ class _Resolver:
         self._products = {
             p.sku: p for p in (await self.session.scalars(select(Product))).all()
         }
+        self._aliases = await _alias_products(self.session, self._products)
         self._listings = {
             (li.account_id, li.channel_sku): li.product_id
             for li in (await self.session.scalars(select(ChannelListing))).all()
@@ -100,7 +121,7 @@ class _Resolver:
         key = (account.id, sku)
         if key in self._listings:
             return self._listings[key]
-        product = self._products.get(sku)
+        product = self._aliases.get(sku) or self._products.get(sku)
         if product is None:
             product = Product(sku=sku, name=name)
             self.session.add(product)
@@ -168,6 +189,7 @@ async def import_cogs(session: AsyncSession, df: pl.DataFrame) -> ImportResult:
     """`df` viene de `normalize_cogs`. Fija el costo; crea el producto si aún no existe."""
     result = ImportResult()
     products = {p.sku: p for p in (await session.scalars(select(Product))).all()}
+    products.update(await _alias_products(session, products))  # un alias fija el costo del maestro
     component_id = await product_cost_component_id(session)
     history: dict[int, list[ProductCostHistory]] = {}
     for h in (

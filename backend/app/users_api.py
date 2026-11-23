@@ -112,6 +112,8 @@ async def set_user_roles(
     if (OWNER in wanted) != (OWNER in current):
         if not actor.can("roles.manage"):
             raise HTTPException(403, "Solo el Dueño puede dar o quitar el rol de Dueño")
+        if OWNER in current and actor.id == user_id:
+            raise HTTPException(400, "No puedes quitarte tu propio acceso de Dueño")
         if OWNER in current and not await _other_active_owners(session, user_id):
             raise HTTPException(400, "Debe quedar al menos un Dueño activo")
 

@@ -124,19 +124,39 @@ dos `VITE_` de arriba.
 | `TTS_*` | TikTok Shop (clave, secreto, tokens) | — |
 | `WMT_CLIENT_ID`, `WMT_CLIENT_SECRET` | Walmart Marketplace | — |
 | `REDO_STORE_ID`, `REDO_API_KEY` | Redo (costo real de etiquetas) | — |
+| `CHK_DIGEST_ENABLED`, `CHK_DIGEST_DAILY_HOUR`, `CHK_DIGEST_WEEKLY_WEEKDAY` | Resumen diario/semanal | apagado, 8, 0 (lunes) |
+| `CHK_SMTP_*`, `CHK_SLACK_WEBHOOK_URL`, `CHK_DIGEST_WEBHOOK_URL` | Canales del resumen | — |
+| `ANTHROPIC_API_KEY` o `CHK_AI_API_KEY`, `CHK_AI_MODEL`, `CHK_AI_MAX_TOKENS` | Asistente con IA | apagado, `claude-sonnet-5-5`, 1500 |
 
 ## 6. Qué hay en la aplicación
 
 | Sección | Para qué sirve |
 |---|---|
-| **Resumen** | Resumen ejecutivo, Alertas, Pronóstico y metas, Estado de resultados (con gastos indirectos) |
+| **Resumen** | Resumen ejecutivo, Alertas, **Asistente** (explica por qué cambió la utilidad; preguntas con IA opcional), Pronóstico y metas, Estado de resultados (con gastos indirectos) |
 | **Rentabilidad** | Pareto ABC, Versus (canal, tienda, producto), Precios (piso rentable y paridad), Aranceles, Promociones |
 | **Operación** | Inventario, Reposición, Logística, Devoluciones (con costo real), Horas pico |
 | **Dinero** | Flujo de caja (con proyección), Conciliación y fugas |
 | **Creadores y tráfico** | Muestras (con decisiones por creador), Creativos, Embudo, LIVE |
-| **Catálogo y datos** | Productos, Costos (COGS), Importar |
+| **Catálogo y datos** | Productos, **Gestor de SKU** (fusiona variantes duplicadas), **Calidad de datos** (puntuación y qué corregir), **Notificaciones** (resumen diario/semanal), Costos (COGS), Importar; además **Exportar** (CSV y PDF para el contador) y **Usuarios** si tu rol lo permite |
 
 La barra **Vista** de arriba filtra todas las pantallas por canal y por tienda.
+
+### Funciones que envían datos fuera de la aplicación (apagadas por defecto)
+
+| Función | Qué sale y a dónde | Cómo se activa |
+|---|---|---|
+| **Resumen diario/semanal** | Ventas, utilidad y productos principales, por correo (SMTP), Slack o un webhook (p. ej. WhatsApp vía Twilio/Make/Zapier) | `CHK_DIGEST_ENABLED=true` y un canal configurado; ver `backend/.env.example` |
+| **Asistente con IA** | Las cifras de cada pregunta (ventas, costos, SKU; nunca datos de clientes) a la API de Anthropic | `ANTHROPIC_API_KEY` (o `CHK_AI_API_KEY`) |
+
+Sin esas variables no se envía nada. La explicación “¿por qué cambió la utilidad?” del Asistente funciona siempre,
+sin IA y sin salir de tu equipo. En **Notificaciones** puedes previsualizar el resumen y enviar una prueba (pide una
+confirmación explícita).
+
+### Gestor de SKU
+Si una plataforma manda el mismo producto con SKU distintos (`XMAS8027` y `XMAS-8027`, `-1PK`, variante `E`), el
+gestor sugiere las fusiones, mueve ventas, costos y listados al producto maestro y deja un **alias**: las
+importaciones y sincronizaciones siguientes con el SKU viejo ya no crean productos duplicados. La fusión es
+irreversible (haz una copia antes: ver `docs/DESPLIEGUE.md`).
 
 ## 7. Base de datos en Supabase
 
@@ -151,8 +171,9 @@ SQLite (desarrollo y pruebas) no usa las migraciones: el backend crea las tablas
 
 ```bash
 cd backend
-uv run pytest                 # ~160 pruebas, usan SQLite en memoria (no tocan tu base)
+uv run pytest                 # unas 250 pruebas, usan SQLite en memoria (no tocan tu base ni envían nada afuera)
 uv run ruff check .           # estilo y errores comunes
+uv run python -m app.backup create --out backups --keep 14   # copia de seguridad (ver docs/DESPLIEGUE.md)
 
 cd ../frontend
 npm run lint                  # oxlint
@@ -172,7 +193,12 @@ npm run build                 # revisa tipos (tsc) y compila
 | La utilidad parece demasiado alta | Faltan costos: revisa la alerta “productos vendidos sin costo” y carga el landed cost |
 | Quiero empezar de cero con SQLite | Borra `backend/chk_local.db` y vuelve a arrancar |
 
-## 10. Seguridad
+## 10. Más guías
+
+- **[Despliegue, copias de seguridad y CI](DESPLIEGUE.md):** Docker (`docker compose up -d --build`), respaldos
+  programados, qué revisa GitHub Actions y la lista antes de publicar en internet.
+
+## 11. Seguridad
 
 - Las plataformas se consultan en **solo lectura**; los conectores nunca crean, cambian ni borran nada allá.
 - `.env`, `*.db` y `tts_tokens*.json` están en `.gitignore`: **nunca** los subas a git ni pegues su contenido en chats.
