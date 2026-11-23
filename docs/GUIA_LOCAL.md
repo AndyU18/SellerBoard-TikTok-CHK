@@ -38,6 +38,30 @@ uv descarga la versión correcta de Python por ti; no hace falta instalarla apar
 
 ## 3. Primer arranque
 
+### 3.0 Forma recomendada en Windows: un solo comando que limpia solo
+
+Después de instalar las dependencias (3.1 y 3.2, solo la primera vez), desde la raíz del proyecto:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\dev.ps1            # o: .\scripts\dev.ps1 -NoSync
+```
+
+(Si prefieres escribir solo `.\scripts\dev.ps1`, ejecuta una vez `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.)
+
+El script arranca la API (puerto 8000) y la interfaz (puerto 5173) y, **al salir con Ctrl+C o al cerrar la ventana,
+cierra los dos con todos sus procesos hijos y libera los puertos**. Además:
+
+- Si al arrancar encuentra una copia anterior **de este mismo proyecto** que quedó abierta, la cierra.
+- Si el puerto lo usa **otro programa** (otro proyecto, o uno que Windows reserva), no lo toca: usa el siguiente puerto
+  libre y le avisa a la interfaz cuál es. Así dos proyectos a la vez no chocan.
+- `.\scripts\stop.ps1` cierra a mano cualquier proceso de este proyecto que haya quedado (por ejemplo si cerraste la
+  terminal a la fuerza). Nunca toca procesos de otros proyectos.
+- `-NoSync` desactiva la sincronización automática con las plataformas mientras desarrollas.
+
+Si prefieres arrancar cada parte por separado, sigue con 3.1 y 3.2.
+
+### Arranque manual
+
 Abre **dos terminales** (PowerShell o Git Bash), una para el backend y otra para el frontend.
 
 ### 3.1 Backend (terminal 1)
@@ -45,9 +69,15 @@ Abre **dos terminales** (PowerShell o Git Bash), una para el backend y otra para
 ```bash
 cd backend
 uv sync                      # instala las dependencias (la primera vez tarda un poco)
-cp .env.example .env         # Windows PowerShell: Copy-Item .env.example .env
 uv run uvicorn app.main:app --reload
 ```
+
+- **Primera vez:** crea tus archivos de variables con `.\scripts\setup-env.ps1` (desde la raíz del proyecto). Crea
+  `backend/.env` y `frontend/.env.local` desde sus plantillas **solo si no existen**, nunca sobrescribe uno que ya
+  tenga tus credenciales, y guarda un respaldo `.env.bak` / `.env.local.bak` (ignorados por git). `dev.ps1` lo corre
+  solo en cada arranque.
+  **No uses `cp .env.example .env` a ciegas: copiar la plantilla encima de un `.env` existente lo sobrescribe y pierdes
+  las credenciales.** Si pasa, recupéralo con `.\scripts\setup-env.ps1 -Restore`.
 
 - La API queda en http://127.0.0.1:8000 y su documentación interactiva en http://127.0.0.1:8000/docs.
 - Sin configurar nada usa **SQLite** (`backend/chk_local.db`) y crea las tablas solo: sirve para probar.
@@ -59,7 +89,7 @@ uv run uvicorn app.main:app --reload
 ```bash
 cd frontend
 npm install
-cp .env.example .env.local   # y escribe tus valores (ver abajo)
+powershell -File ..\scripts\setup-env.ps1   # crea .env.local solo si no existe; luego escribe tus valores (ver abajo)
 npm run dev
 ```
 
@@ -187,7 +217,8 @@ npm run build                 # revisa tipos (tsc) y compila
 | La interfaz dice **“Falta configurar VITE_SUPABASE_URL…”** | Crea `frontend/.env.local` con las dos variables y reinicia `npm run dev` |
 | Todo responde **401** | La sesión venció o `SUPABASE_URL` del backend no coincide con la del frontend |
 | La interfaz carga pero no hay datos / errores de red | ¿Está corriendo el backend en el puerto 8000? Mira la terminal 1 |
-| **Port 8000 already in use** | Cierra el otro proceso, o arranca con `--port 8001` y cambia el `proxy` en `frontend/vite.config.ts` |
+| **`WinError 10013`** o **Port 8000 already in use** | Otro programa (o una copia vieja de este proyecto) tiene el puerto. Usa `.\scripts\dev.ps1`, que cierra la copia vieja o elige otro puerto, o corre `.\scripts\stop.ps1` |
+| `Set-ExecutionPolicy` / "la ejecución de scripts está deshabilitada" | Usa `powershell -ExecutionPolicy Bypass -File .\scripts\dev.ps1` o `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
 | `TikTok Shop 98001021 … downstream server error` | Falla temporal del servidor de TikTok: reintenta en unos minutos (queda registrada en Alertas) |
 | Una plataforma aparece **“Sin credenciales”** | Descomenta sus variables en `backend/.env` y reinicia el backend |
 | La utilidad parece demasiado alta | Faltan costos: revisa la alerta “productos vendidos sin costo” y carga el landed cost |

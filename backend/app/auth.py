@@ -109,7 +109,8 @@ async def current_user(
         claims = await asyncio.to_thread(decode_token, creds.credentials)
         user_id = uuid.UUID(claims["sub"])
     except (jwt.PyJWTError, ValueError, KeyError, RuntimeError) as exc:
-        log.info("Token rechazado: %s", type(exc).__name__)
+        # El mensaje de PyJWT describe el motivo (firma, emisor, algoritmo...) y nunca incluye el token.
+        log.warning("Token rechazado: %s: %s", type(exc).__name__, exc)
         raise _unauthorized("Sesión inválida o expirada") from exc
 
     active, permissions, roles = await load_permissions(session, user_id)

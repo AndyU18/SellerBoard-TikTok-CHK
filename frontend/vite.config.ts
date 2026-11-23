@@ -10,6 +10,7 @@ export default defineConfig({
     alias: { '@': path.resolve(import.meta.dirname, 'src') },
   },
   server: {
-    proxy: { '/api': 'http://127.0.0.1:8000' },
+    // scripts/dev.ps1 define CHK_BACKEND_PORT cuando el 8000 está ocupado por otro programa.
+    proxy: { '/api': `http://127.0.0.1:${process.env.CHK_BACKEND_PORT ?? '8000'}` },
   },
 })
