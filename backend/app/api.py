@@ -18,6 +18,7 @@ from app.alerts import build_alerts
 from app.auth import require
 from app.config import settings
 from app.connectors.redo import RedoError
+from app.connectors.tiktok_ads import TikTokAdsError
 from app.connectors.tiktok_shop import TikTokShopError
 from app.connectors.walmart import WalmartError
 from app.costs import load_cost_history, set_product_cost
@@ -172,6 +173,17 @@ async def sync_tiktok(
     try:
         return await run_source(session, "tiktok_shop", days)
     except TikTokShopError as exc:
+        raise HTTPException(502, {"problems": [str(exc)]}) from exc
+
+
+@router.post("/sync/tiktok-ads", dependencies=[Depends(require("sync.run", writes=True))])
+async def sync_tiktok_ads_spend(
+    session: SessionDep, days: Annotated[int, Query(ge=1, le=180)] = 30
+) -> dict:
+    """Trae de TikTok Ads (solo lectura) el gasto publicitario diario de los últimos `days` días."""
+    try:
+        return await run_source(session, "tiktok_ads", days)
+    except TikTokAdsError as exc:
         raise HTTPException(502, {"problems": [str(exc)]}) from exc
 
 

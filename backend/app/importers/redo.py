@@ -34,6 +34,10 @@ class RedoStats:
     unassigned_charges: int = 0
     unassigned_total: float = 0.0
     other_rows_ignored: int = 0
+    # Libro completo guardado en ops.redo_* (solo lo llena la API).
+    ledger_charges: int = 0
+    bills: int = 0
+    topups: int = 0
 
 
 def normalize_redo(raw: pl.DataFrame) -> tuple[pl.DataFrame, RedoStats]:

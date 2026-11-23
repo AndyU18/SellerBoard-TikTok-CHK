@@ -162,6 +162,6 @@ async def test_sync_status_endpoint_lists_every_source(env, monkeypatch):
         await s.commit()
     body = (await client.get("/api/sync/status")).json()
     rows = {r["source"]: r for r in body["sources"]}
-    assert set(rows) == {"tiktok_shop", "walmart", "redo"}
+    assert set(rows) == {"tiktok_shop", "tiktok_ads", "walmart", "redo"}
     assert rows["tiktok_shop"]["status"] == "success" and rows["tiktok_shop"]["next_due_at"]
     assert rows["walmart"]["status"] is None

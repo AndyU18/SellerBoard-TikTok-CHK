@@ -20,6 +20,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import settings
 from app.connectors.redo import RedoClient, RedoSettings, sync_redo
+from app.connectors.tiktok_ads import (
+    TikTokAdsClient,
+    TikTokAdsSettings,
+    sync_tiktok_ads,
+)
 from app.connectors.tiktok_shop import TikTokShopClient, TikTokShopSettings
 from app.connectors.tiktok_shop_sync import sync_tiktok_shop
 from app.connectors.walmart import WalmartClient, WalmartSettings, sync_walmart
@@ -29,8 +34,13 @@ from app.models import SyncRun
 log = logging.getLogger("chk.sync")
 
 # Orden: primero las órdenes, después las etiquetas de Redo, que se unen a ellas.
-SOURCES = ("tiktok_shop", "walmart", "redo")
-LABELS = {"tiktok_shop": "TikTok Shop", "walmart": "Walmart", "redo": "Redo (etiquetas)"}
+SOURCES = ("tiktok_shop", "tiktok_ads", "walmart", "redo")
+LABELS = {
+    "tiktok_shop": "TikTok Shop",
+    "tiktok_ads": "TikTok Ads (publicidad)",
+    "walmart": "Walmart",
+    "redo": "Redo (etiquetas)",
+}
 STALE_RUNNING = timedelta(minutes=30)  # una ejecución "en curso" más vieja que esto se considera caída
 
 Runner = Callable[[AsyncSession, int], Awaitable[dict[str, Any]]]
@@ -56,6 +66,17 @@ async def run_tiktok(session: AsyncSession, days: int) -> dict[str, Any]:
     return {"days": report.days, "stats": report.stats, "imported": _public(report.imported)}
 
 
+async def run_tiktok_ads(session: AsyncSession, days: int) -> dict[str, Any]:
+    report = await sync_tiktok_ads(session, TikTokAdsClient(), days=days)
+    await _refresh(session, report.imported.touched_from, days, "sync_tiktok_ads")
+    return {
+        "days": report.days,
+        "stats": report.stats,
+        "imported": _public(report.imported),
+        "problems": report.problems,
+    }
+
+
 async def run_walmart(session: AsyncSession, days: int) -> dict[str, Any]:
     report = await sync_walmart(session, WalmartClient(), days=days)
     await _refresh(session, report.imported.touched_from, days, "sync_walmart")
@@ -75,9 +96,15 @@ async def run_redo(session: AsyncSession, days: int) -> dict[str, Any]:
     return {**_public(result), "stats": asdict(stats)}
 
 
-RUNNERS: dict[str, Runner] = {"tiktok_shop": run_tiktok, "walmart": run_walmart, "redo": run_redo}
+RUNNERS: dict[str, Runner] = {
+    "tiktok_shop": run_tiktok,
+    "tiktok_ads": run_tiktok_ads,
+    "walmart": run_walmart,
+    "redo": run_redo,
+}
 SETTINGS: dict[str, Callable[[], Any]] = {
     "tiktok_shop": TikTokShopSettings,
+    "tiktok_ads": TikTokAdsSettings,
     "walmart": WalmartSettings,
     "redo": RedoSettings,
 }

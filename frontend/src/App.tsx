@@ -3,6 +3,7 @@ import {
   Banknote,
   Bell,
   Boxes,
+  Calculator,
   Clock,
   Coins,
   DollarSign,
@@ -12,9 +13,11 @@ import {
   LayoutDashboard,
   Download,
   Link2,
+  ListOrdered,
   LogOut,
   Mail,
   Package,
+  PackageCheck,
   Radio,
   Scale,
   ScrollText,
@@ -28,6 +31,7 @@ import {
   Upload,
   Users as UsersIcon,
   Video,
+  Wallet,
   Warehouse,
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
@@ -62,6 +66,10 @@ import { Pricing } from '@/pages/Pricing'
 import { Products } from '@/pages/Products'
 import { Promotions } from '@/pages/Promotions'
 import { Reconciliation } from '@/pages/Reconciliation'
+import { RedoBilling } from '@/pages/RedoBilling'
+import { RedoCharges } from '@/pages/RedoCharges'
+import { RedoCosts } from '@/pages/RedoCosts'
+import { RedoOverview } from '@/pages/RedoOverview'
 import { Reorder } from '@/pages/Reorder'
 import { Returns } from '@/pages/Returns'
 import { Samples } from '@/pages/Samples'
@@ -88,6 +96,10 @@ type Page =
   | 'dayparting'
   | 'cashflow'
   | 'reconciliation'
+  | 'redo'
+  | 'redoCosts'
+  | 'redoBilling'
+  | 'redoCharges'
   | 'returns'
   | 'logistics'
   | 'inventory'
@@ -122,6 +134,10 @@ const NAV: NavItem[] = [
   { group: 'Operación', id: 'dayparting', label: 'Horas pico', icon: <Clock className={icon} />, permission: 'profit.view' },
   { group: 'Dinero', id: 'cashflow', label: 'Flujo de caja', icon: <Banknote className={icon} />, permission: 'profit.view' },
   { group: 'Dinero', id: 'reconciliation', label: 'Conciliación', icon: <Scale className={icon} />, permission: 'profit.view' },
+  { group: 'Redo (etiquetas)', id: 'redo', label: 'Resumen de Redo', icon: <PackageCheck className={icon} />, permission: 'profit.view' },
+  { group: 'Redo (etiquetas)', id: 'redoCosts', label: 'Costo por orden', icon: <Calculator className={icon} />, permission: 'profit.view' },
+  { group: 'Redo (etiquetas)', id: 'redoBilling', label: 'Facturación y saldo', icon: <Wallet className={icon} />, permission: 'profit.view' },
+  { group: 'Redo (etiquetas)', id: 'redoCharges', label: 'Libro de cargos', icon: <ListOrdered className={icon} />, permission: 'profit.view' },
   { group: 'Creadores y tráfico', id: 'samples', label: 'Muestras', icon: <Gift className={icon} />, permission: 'profit.view' },
   { group: 'Creadores y tráfico', id: 'creatives', label: 'Creativos', icon: <Video className={icon} />, permission: 'profit.view' },
   { group: 'Creadores y tráfico', id: 'funnel', label: 'Embudo', icon: <Filter className={icon} />, permission: 'profit.view' },
@@ -276,6 +292,10 @@ export default function App() {
           {current === 'dayparting' && <Dayparting />}
           {current === 'cashflow' && <Cashflow />}
           {current === 'reconciliation' && <Reconciliation />}
+          {current === 'redo' && <RedoOverview />}
+          {current === 'redoCosts' && <RedoCosts />}
+          {current === 'redoBilling' && <RedoBilling />}
+          {current === 'redoCharges' && <RedoCharges />}
           {current === 'returns' && <Returns />}
           {current === 'logistics' && <Logistics />}
           {current === 'inventory' && <Inventory />}

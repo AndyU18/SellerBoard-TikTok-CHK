@@ -13,6 +13,7 @@ from app.db import SessionLocal, init_db
 from app.export_api import router as export_router
 from app.notifications_api import router as notifications_router
 from app.notify import digest_loop
+from app.redo_api import router as redo_router
 from app.sku_api import router as sku_router
 from app.sync_jobs import auto_sync_loop
 from app.users_admin_api import router as users_admin_router
@@ -48,6 +49,7 @@ app.add_middleware(
 )
 app.include_router(router)
 app.include_router(analytics_router)
+app.include_router(redo_router)
 app.include_router(assistant_router)
 app.include_router(notifications_router)
 app.include_router(sku_router)

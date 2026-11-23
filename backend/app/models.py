@@ -642,3 +642,55 @@ class ShippingLabelCost(Base):
     charges: Mapped[int] = mapped_column(default=1)
     first_charged: Mapped[date | None] = mapped_column(Date)
     last_charged: Mapped[date | None] = mapped_column(Date)
+
+
+class RedoCharge(Base):
+    """Un cargo del libro de Redo (etiqueta, corrección, anulación, comisión). Tabla ops.redo_charge."""
+
+    __tablename__ = "redo_charge"
+    __table_args__ = ({"schema": "ops"},)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    order_name: Mapped[str | None] = mapped_column(String, index=True)
+    subtype: Mapped[str] = mapped_column(String, index=True)
+    type: Mapped[str | None] = mapped_column(String)
+    product: Mapped[str | None] = mapped_column(String)
+    amount: Mapped[Decimal] = mapped_column(Money)
+    currency: Mapped[str] = mapped_column(String, default="USD")
+    note: Mapped[str | None] = mapped_column(String)
+    fulfillment_group_id: Mapped[str | None] = mapped_column(String)
+    shipment_id: Mapped[str | None] = mapped_column(String)
+    reverses_charge_id: Mapped[str | None] = mapped_column(String)
+    order_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class RedoBill(Base):
+    """Factura mensual de Redo con saldo de apertura y cierre. Tabla ops.redo_bill."""
+
+    __tablename__ = "redo_bill"
+    __table_args__ = ({"schema": "ops"},)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    type: Mapped[str | None] = mapped_column(String)
+    status: Mapped[str | None] = mapped_column(String)
+    period_start: Mapped[date | None] = mapped_column(Date)
+    period_end: Mapped[date | None] = mapped_column(Date)
+    charge_total: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    opening_balance: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    closing_balance: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    billed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RedoTopup(Base):
+    """Recarga de saldo en Redo (financiamiento, no costo). Tabla ops.redo_topup."""
+
+    __tablename__ = "redo_topup"
+    __table_args__ = ({"schema": "ops"},)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    amount: Mapped[Decimal] = mapped_column(Money)
+    status: Mapped[str | None] = mapped_column(String)
+    failure_message: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

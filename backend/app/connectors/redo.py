@@ -26,6 +26,7 @@ from app.importers.redo import (
     RedoStats,
     import_label_costs,
 )
+from app.redo_ops import upsert_bills, upsert_charges, upsert_topups
 
 API_BASE = "https://api.getredo.com"
 PAGE_SIZE = 100
@@ -34,11 +35,33 @@ CHARGES_QUERY = (
 query ($after: String, $first: Int) {
   billingCharges(first: $first, after: $after) {
     pageInfo { hasNextPage endCursor }
-    edges { node { id orderName createdAt note amount { amount currency } } }
+    edges { node {
+      id orderName createdAt orderDate note type subtype product
+      fulfillmentGroupId shipmentId reversesChargeId amount { amount currency }
+    } }
   }
 }
 """
 )
+BILLS_QUERY = """
+query ($after: String, $first: Int) {
+  billingBills(first: $first, after: $after) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      id type status periodStart periodEnd billedAt dueAt
+      chargeTotal { amount } openingBalance { amount } closingBalance { amount }
+    }
+  }
+}
+"""
+TOPUPS_QUERY = """
+query ($after: String, $first: Int) {
+  billingTransactions(first: $first, after: $after) {
+    pageInfo { hasNextPage endCursor }
+    edges { node { id amount { amount } status failureMessage createdAt } }
+  }
+}
+"""
 
 PER_ORDER_SCHEMA = {
     "external_order_id": pl.Utf8,
@@ -107,6 +130,25 @@ class RedoClient:
                 return
             after = page["pageInfo"]["endCursor"]
 
+    def iter_bills(self) -> Iterator[dict[str, Any]]:
+        after: str | None = None
+        while True:
+            page = self.query(BILLS_QUERY, {"after": after, "first": PAGE_SIZE})["billingBills"]
+            yield from page["nodes"]
+            if not page["pageInfo"]["hasNextPage"]:
+                return
+            after = page["pageInfo"]["endCursor"]
+
+    def iter_topups(self) -> Iterator[dict[str, Any]]:
+        after: str | None = None
+        while True:
+            page = self.query(TOPUPS_QUERY, {"after": after, "first": PAGE_SIZE})["billingTransactions"]
+            for edge in page["edges"]:
+                yield edge["node"]
+            if not page["pageInfo"]["hasNextPage"]:
+                return
+            after = page["pageInfo"]["endCursor"]
+
 
 def build_label_frame(charges: list[dict[str, Any]]) -> tuple[pl.DataFrame, RedoStats]:
     """Un total por orden (cargos y reversas netos) + estadísticas de lo que no se atribuye."""
@@ -149,6 +191,13 @@ async def sync_redo(
 ) -> tuple[LabelImportResult, RedoStats]:
     charges = await asyncio.to_thread(lambda: list(client.iter_charges()))
     frame, stats = build_label_frame(charges)
+    stats.ledger_charges = await upsert_charges(session, charges)
+    if hasattr(client, "iter_bills"):
+        bills = await asyncio.to_thread(lambda: list(client.iter_bills()))
+        stats.bills = await upsert_bills(session, bills)
+    if hasattr(client, "iter_topups"):
+        topups = await asyncio.to_thread(lambda: list(client.iter_topups()))
+        stats.topups = await upsert_topups(session, topups)
     result = (
         await import_label_costs(session, frame)
         if frame.height
