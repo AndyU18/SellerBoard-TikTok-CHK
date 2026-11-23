@@ -449,7 +449,7 @@ export class ApiError extends Error {
 
 
 /** fetch con el token de la sesión de Supabase. Si el backend responde 401, cierra la sesión. */
-async function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
+export async function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const { data } = await supabase.auth.getSession()
   const headers = new Headers(init.headers)
   if (data.session) headers.set('Authorization', `Bearer ${data.session.access_token}`)
@@ -458,14 +458,14 @@ async function authFetch(input: string, init: RequestInit = {}): Promise<Respons
   return res
 }
 
-function query(params: Record<string, string | undefined>): string {
+export function query(params: Record<string, string | undefined>): string {
   const q = new URLSearchParams()
   for (const [k, v] of Object.entries(params)) if (v) q.set(k, v)
   const s = q.toString()
   return s ? `?${s}` : ''
 }
 
-async function parse<T>(res: Response): Promise<T> {
+export async function parse<T>(res: Response): Promise<T> {
   if (res.ok) return res.json() as Promise<T>
   let problems: string[] = []
   let message = `Error ${res.status}`

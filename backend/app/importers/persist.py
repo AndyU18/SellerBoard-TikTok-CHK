@@ -127,10 +127,13 @@ async def _load_orders(
     """
     wanted: dict[int, dict[str, object]] = {}
     stamps: dict[tuple[int, str], object] = {}
+    states: dict[tuple[int, str], str] = {}
     for account, _, row in prepared:
         wanted.setdefault(account.id, {}).setdefault(row["order_id"], row["date"])
         if row.get("ordered_at") is not None:
             stamps[(account.id, row["order_id"])] = row["ordered_at"]
+        if row.get("ship_state"):
+            states[(account.id, row["order_id"])] = row["ship_state"]
 
     orders: dict[tuple[int, str], SalesOrder] = {}
     old_dates: list[date] = []
@@ -155,6 +158,8 @@ async def _load_orders(
                 orders[(account_id, external_id)] = order
     for key, stamp in stamps.items():
         orders[key].ordered_at = stamp  # type: ignore[assignment]
+    for key, state in states.items():
+        orders[key].ship_state = state
     await session.flush()
     return orders, old_dates
 
@@ -211,6 +216,8 @@ async def import_orders(session: AsyncSession, df: pl.DataFrame) -> ImportResult
     extra = [pl.col(c).sum() for c in optional_money]
     if "ordered_at" in df.columns:
         extra.append(pl.col("ordered_at").min())
+    if "ship_state" in df.columns:
+        extra.append(pl.col("ship_state").drop_nulls().first())
     lines = df.group_by(
         ["channel", "account", "order_id", "sku"], maintain_order=True
     ).agg(

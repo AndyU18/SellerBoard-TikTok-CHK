@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 
 import { ChannelOnlyNotice } from '@/components/ScopeBar'
 import { FilterBar } from '@/components/FilterBar'
+import { ReturnsCost } from '@/components/analytics/ReturnsCost'
 import { useScope } from '@/lib/scope'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -199,6 +200,8 @@ export function Returns() {
           </Table>
         </CardContent>
       </Card>
+
+      <ReturnsCost />
 
       <p className="text-muted-foreground max-w-3xl text-xs">
         TikTok Shop informa devoluciones y cancelaciones; Walmart, solo devoluciones. Las solicitudes que el comprador retiró no

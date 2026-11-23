@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.analytics_api import router as analytics_router
 from app.api import router
 from app.config import settings
 from app.db import SessionLocal, init_db
@@ -33,4 +34,5 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(router)
+app.include_router(analytics_router)
 app.include_router(users_router)

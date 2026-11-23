@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 
 import { ChannelBadge } from '@/components/ChannelBadge'
 import { FilterBar } from '@/components/FilterBar'
+import { PromoEffect } from '@/components/analytics/PromoEffect'
 import { useScope } from '@/lib/scope'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -144,6 +145,8 @@ export function Promotions() {
           </Table>
         </CardContent>
       </Card>
+
+      <PromoEffect />
 
       <p className="text-muted-foreground max-w-3xl text-xs">
         El subsidio y el precio de lista solo los informa TikTok Shop, y solo en las órdenes que se sincronizaron

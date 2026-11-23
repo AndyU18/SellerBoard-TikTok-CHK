@@ -55,7 +55,14 @@ OUT_SCHEMA = {
     "shipping_cost": pl.Float64,
     "refund_amount": pl.Float64,
     "ordered_at": pl.Datetime(time_zone="UTC"),
+    "ship_state": pl.Utf8,
 }
+
+
+def _ship_state(order: dict[str, Any]) -> str | None:
+    """Estado de destino (solo el estado, nunca la dirección)."""
+    state = ((order.get("shippingInfo") or {}).get("postalAddress") or {}).get("state")
+    return (str(state).strip() or None) if state else None
 
 
 class WalmartSettings(BaseSettings):
@@ -362,6 +369,7 @@ def build_order_lines(
                     # Lo que informa la orden y lo de las devoluciones es lo mismo: no se suman.
                     "refund_amount": max(g["refund"], returned.get((order_id, sku), 0.0)),
                     "ordered_at": ordered_at,
+                    "ship_state": _ship_state(order),
                 }
             )
     return pl.DataFrame(rows, schema=OUT_SCHEMA), stats

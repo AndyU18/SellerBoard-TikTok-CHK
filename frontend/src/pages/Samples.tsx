@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ChannelOnlyNotice } from '@/components/ScopeBar'
+import { CreatorDecisions } from '@/components/analytics/CreatorDecisions'
 import { api, type Filters } from '@/lib/api'
 import { useScope } from '@/lib/scope'
 import { count, money, percent, PRESETS, presetRange, tone, type Preset } from '@/lib/format'
@@ -184,6 +185,8 @@ export function Samples() {
           </ul>
         </CardContent>
       </Card>
+
+      <CreatorDecisions />
 
       <p className="text-muted-foreground max-w-3xl text-xs">
         Costo de la muestra = costo del producto + etiqueta de envío. Utilidad del creador = utilidad neta de sus

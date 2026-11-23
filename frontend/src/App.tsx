@@ -2,21 +2,27 @@ import {
   BarChart3,
   Banknote,
   Bell,
+  Boxes,
   Clock,
   Coins,
+  DollarSign,
   Filter,
   GitCompareArrows,
   Gift,
   LayoutDashboard,
-  Warehouse,
   LogOut,
   Package,
   Radio,
+  Scale,
+  ScrollText,
+  Ship,
   Tag,
+  TrendingUp,
   Truck,
   Undo2,
   Upload,
   Video,
+  Warehouse,
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 
@@ -32,6 +38,7 @@ import { Costs } from '@/pages/Costs'
 import { Creatives } from '@/pages/Creatives'
 import { Dashboard } from '@/pages/Dashboard'
 import { Dayparting } from '@/pages/Dayparting'
+import { Forecast } from '@/pages/Forecast'
 import { Funnel } from '@/pages/Funnel'
 import { Import } from '@/pages/Import'
 import { Inventory } from '@/pages/Inventory'
@@ -39,23 +46,34 @@ import { Live } from '@/pages/Live'
 import { Login } from '@/pages/Login'
 import { Logistics } from '@/pages/Logistics'
 import { Pareto } from '@/pages/Pareto'
+import { Pnl } from '@/pages/Pnl'
+import { Pricing } from '@/pages/Pricing'
 import { Products } from '@/pages/Products'
 import { Promotions } from '@/pages/Promotions'
+import { Reconciliation } from '@/pages/Reconciliation'
+import { Reorder } from '@/pages/Reorder'
 import { Returns } from '@/pages/Returns'
 import { Samples } from '@/pages/Samples'
+import { Tariffs } from '@/pages/Tariffs'
 import { Versus } from '@/pages/Versus'
 
 type Page =
   | 'dashboard'
   | 'alerts'
+  | 'forecast'
+  | 'pnl'
   | 'pareto'
   | 'versus'
+  | 'pricing'
+  | 'tariffs'
   | 'promotions'
   | 'dayparting'
   | 'cashflow'
+  | 'reconciliation'
   | 'returns'
   | 'logistics'
   | 'inventory'
+  | 'reorder'
   | 'samples'
   | 'creatives'
   | 'funnel'
@@ -64,24 +82,34 @@ type Page =
   | 'costs'
   | 'import'
 
-const NAV: { id: Page; label: string; icon: ReactNode; permission: string }[] = [
-  { id: 'dashboard', label: 'Resumen ejecutivo', icon: <LayoutDashboard className="size-4" />, permission: 'profit.view' },
-  { id: 'alerts', label: 'Alertas', icon: <Bell className="size-4" />, permission: 'profit.view' },
-  { id: 'pareto', label: 'Pareto ABC', icon: <BarChart3 className="size-4" />, permission: 'profit.view' },
-  { id: 'versus', label: 'Versus', icon: <GitCompareArrows className="size-4" />, permission: 'profit.view' },
-  { id: 'promotions', label: 'Promociones', icon: <Tag className="size-4" />, permission: 'profit.view' },
-  { id: 'dayparting', label: 'Horas pico', icon: <Clock className="size-4" />, permission: 'profit.view' },
-  { id: 'cashflow', label: 'Flujo de caja', icon: <Banknote className="size-4" />, permission: 'profit.view' },
-  { id: 'returns', label: 'Devoluciones', icon: <Undo2 className="size-4" />, permission: 'profit.view' },
-  { id: 'logistics', label: 'Logística', icon: <Truck className="size-4" />, permission: 'profit.view' },
-  { id: 'inventory', label: 'Inventario', icon: <Warehouse className="size-4" />, permission: 'profit.view' },
-  { id: 'samples', label: 'Muestras', icon: <Gift className="size-4" />, permission: 'profit.view' },
-  { id: 'creatives', label: 'Creativos', icon: <Video className="size-4" />, permission: 'profit.view' },
-  { id: 'funnel', label: 'Embudo', icon: <Filter className="size-4" />, permission: 'profit.view' },
-  { id: 'live', label: 'LIVE', icon: <Radio className="size-4" />, permission: 'profit.view' },
-  { id: 'products', label: 'Productos', icon: <Package className="size-4" />, permission: 'catalog.view' },
-  { id: 'costs', label: 'Costos (COGS)', icon: <Coins className="size-4" />, permission: 'catalog.view' },
-  { id: 'import', label: 'Importar', icon: <Upload className="size-4" />, permission: 'import.run' },
+type NavItem = { id: Page; label: string; icon: ReactNode; permission: string; group: string }
+
+const icon = 'size-4'
+// El orden del arreglo es el del menú; los grupos se dibujan cuando cambia `group`.
+const NAV: NavItem[] = [
+  { group: 'Resumen', id: 'dashboard', label: 'Resumen ejecutivo', icon: <LayoutDashboard className={icon} />, permission: 'profit.view' },
+  { group: 'Resumen', id: 'alerts', label: 'Alertas', icon: <Bell className={icon} />, permission: 'profit.view' },
+  { group: 'Resumen', id: 'forecast', label: 'Pronóstico y metas', icon: <TrendingUp className={icon} />, permission: 'profit.view' },
+  { group: 'Resumen', id: 'pnl', label: 'Estado de resultados', icon: <ScrollText className={icon} />, permission: 'profit.view' },
+  { group: 'Rentabilidad', id: 'pareto', label: 'Pareto ABC', icon: <BarChart3 className={icon} />, permission: 'profit.view' },
+  { group: 'Rentabilidad', id: 'versus', label: 'Versus', icon: <GitCompareArrows className={icon} />, permission: 'profit.view' },
+  { group: 'Rentabilidad', id: 'pricing', label: 'Precios', icon: <DollarSign className={icon} />, permission: 'profit.view' },
+  { group: 'Rentabilidad', id: 'tariffs', label: 'Aranceles', icon: <Ship className={icon} />, permission: 'profit.view' },
+  { group: 'Rentabilidad', id: 'promotions', label: 'Promociones', icon: <Tag className={icon} />, permission: 'profit.view' },
+  { group: 'Operación', id: 'inventory', label: 'Inventario', icon: <Warehouse className={icon} />, permission: 'profit.view' },
+  { group: 'Operación', id: 'reorder', label: 'Reposición', icon: <Boxes className={icon} />, permission: 'profit.view' },
+  { group: 'Operación', id: 'logistics', label: 'Logística', icon: <Truck className={icon} />, permission: 'profit.view' },
+  { group: 'Operación', id: 'returns', label: 'Devoluciones', icon: <Undo2 className={icon} />, permission: 'profit.view' },
+  { group: 'Operación', id: 'dayparting', label: 'Horas pico', icon: <Clock className={icon} />, permission: 'profit.view' },
+  { group: 'Dinero', id: 'cashflow', label: 'Flujo de caja', icon: <Banknote className={icon} />, permission: 'profit.view' },
+  { group: 'Dinero', id: 'reconciliation', label: 'Conciliación', icon: <Scale className={icon} />, permission: 'profit.view' },
+  { group: 'Creadores y tráfico', id: 'samples', label: 'Muestras', icon: <Gift className={icon} />, permission: 'profit.view' },
+  { group: 'Creadores y tráfico', id: 'creatives', label: 'Creativos', icon: <Video className={icon} />, permission: 'profit.view' },
+  { group: 'Creadores y tráfico', id: 'funnel', label: 'Embudo', icon: <Filter className={icon} />, permission: 'profit.view' },
+  { group: 'Creadores y tráfico', id: 'live', label: 'LIVE', icon: <Radio className={icon} />, permission: 'profit.view' },
+  { group: 'Catálogo y datos', id: 'products', label: 'Productos', icon: <Package className={icon} />, permission: 'catalog.view' },
+  { group: 'Catálogo y datos', id: 'costs', label: 'Costos (COGS)', icon: <Coins className={icon} />, permission: 'catalog.view' },
+  { group: 'Catálogo y datos', id: 'import', label: 'Importar', icon: <Upload className={icon} />, permission: 'import.run' },
 ]
 
 /** Cuántas alertas críticas (o, si no hay, de atención) hay; se comparte la petición con la pantalla. */
@@ -148,24 +176,30 @@ export default function App() {
   return (
     <ScopeProvider>
     <div className="flex min-h-screen">
-      <aside className="hidden w-56 shrink-0 flex-col bg-slate-800 p-4 text-slate-100 md:flex">
-        <div className="mb-6 text-lg font-bold tracking-tight">
+      <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col bg-slate-800 p-4 text-slate-100 md:flex">
+        <div className="mb-4 text-lg font-bold tracking-tight">
           CHK <span className="text-amber-400">Profit</span>
         </div>
-        <nav className="flex-1 space-y-1">
-          {nav.map((n) => (
-            <button
-              key={n.id}
-              onClick={() => setPage(n.id)}
-              aria-current={current === n.id ? 'page' : undefined}
-              className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors ${
-                current === n.id ? 'bg-slate-700 text-white' : 'text-slate-300 hover:bg-slate-700/60'
-              }`}
-            >
-              {n.icon}
-              {n.label}
-              {n.id === 'alerts' && <AlertBadge />}
-            </button>
+        <nav className="flex-1 space-y-0.5 overflow-y-auto pr-1" aria-label="Secciones">
+          {nav.map((n, i) => (
+            <div key={n.id}>
+              {(i === 0 || nav[i - 1].group !== n.group) && (
+                <div className="mt-3 mb-1 px-3 text-[11px] font-semibold tracking-wider text-slate-400 uppercase first:mt-0">
+                  {n.group}
+                </div>
+              )}
+              <button
+                onClick={() => setPage(n.id)}
+                aria-current={current === n.id ? 'page' : undefined}
+                className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors ${
+                  current === n.id ? 'bg-slate-700 text-white' : 'text-slate-300 hover:bg-slate-700/60'
+                }`}
+              >
+                {n.icon}
+                {n.label}
+                {n.id === 'alerts' && <AlertBadge />}
+              </button>
+            </div>
           ))}
         </nav>
         <div className="border-t border-slate-700 pt-3 text-xs text-slate-300">
@@ -180,12 +214,12 @@ export default function App() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <nav className="flex items-center gap-1 border-b bg-slate-800 p-2 md:hidden">
+        <nav className="flex items-center gap-1 overflow-x-auto border-b bg-slate-800 p-2 md:hidden">
           {nav.map((n) => (
             <button
               key={n.id}
               onClick={() => setPage(n.id)}
-              className={`rounded-md px-3 py-1.5 text-sm text-slate-100 ${current === n.id ? 'bg-slate-600' : ''}`}
+              className={`shrink-0 rounded-md px-3 py-1.5 text-sm text-slate-100 ${current === n.id ? 'bg-slate-600' : ''}`}
             >
               {n.label}
             </button>
@@ -198,14 +232,20 @@ export default function App() {
         <main className="flex-1 p-6">
           {current === 'dashboard' && <Dashboard />}
           {current === 'alerts' && <Alerts />}
+          {current === 'forecast' && <Forecast />}
+          {current === 'pnl' && <Pnl />}
           {current === 'pareto' && <Pareto />}
           {current === 'versus' && <Versus />}
+          {current === 'pricing' && <Pricing />}
+          {current === 'tariffs' && <Tariffs />}
           {current === 'promotions' && <Promotions />}
           {current === 'dayparting' && <Dayparting />}
           {current === 'cashflow' && <Cashflow />}
+          {current === 'reconciliation' && <Reconciliation />}
           {current === 'returns' && <Returns />}
           {current === 'logistics' && <Logistics />}
           {current === 'inventory' && <Inventory />}
+          {current === 'reorder' && <Reorder />}
           {current === 'samples' && <Samples />}
           {current === 'creatives' && <Creatives />}
           {current === 'funnel' && <Funnel />}

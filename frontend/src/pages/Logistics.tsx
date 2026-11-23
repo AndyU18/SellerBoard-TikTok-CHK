@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react'
 import { ChannelOnlyNotice } from '@/components/ScopeBar'
 import { FilterBar } from '@/components/FilterBar'
 import { SellerPerformance } from '@/components/SellerPerformance'
+import { ShippingProfit } from '@/components/analytics/ShippingProfit'
 import { useScope } from '@/lib/scope'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -145,6 +146,8 @@ export function Logistics() {
           </CardContent>
         </Card>
       </div>
+
+      <ShippingProfit />
 
       <p className="text-muted-foreground max-w-3xl text-xs">
         Los tiempos de envío y transportistas solo los informa TikTok Shop. Para Walmart se muestra su desempeño de

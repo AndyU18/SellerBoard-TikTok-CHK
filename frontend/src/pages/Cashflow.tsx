@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { ChannelBadge } from '@/components/ChannelBadge'
+import { CashProjection } from '@/components/analytics/CashProjection'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -80,6 +81,8 @@ export function Cashflow() {
         />
         <Kpi title="Estados de cuenta" value={count(summary?.statements ?? 0)} hint="en el periodo" />
       </div>
+
+      <CashProjection />
 
       <Card>
         <CardHeader>

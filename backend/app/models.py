@@ -141,6 +141,8 @@ class SalesOrder(Base):
     order_date: Mapped[date] = mapped_column(Date)
     ordered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String, default="imported")
+    # Estado de destino (p. ej. "Florida"). Solo el estado: nunca se guarda la dirección.
+    ship_state: Mapped[str | None] = mapped_column(String)
 
 
 class OrderLine(Base):
@@ -321,6 +323,68 @@ class TrafficDaily(Base):
     orders: Mapped[int | None]
     units: Mapped[int | None]
     gmv: Mapped[Decimal | None] = mapped_column(Money)
+
+
+class ExpenseCategory(Base):
+    """Categoría de gasto indirecto (software, nómina, bodega...). Tabla finance.expense_category."""
+
+    __tablename__ = "expense_category"
+    __table_args__ = ({"schema": "finance"},)
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    code: Mapped[str] = mapped_column(String, unique=True)
+    name: Mapped[str] = mapped_column(String)
+    is_active: Mapped[bool] = mapped_column(default=True)
+
+
+class Expense(Base):
+    """Gasto indirecto, puntual o recurrente. El estado de resultados lo prorratea por mes."""
+
+    __tablename__ = "expense"
+    __table_args__ = ({"schema": "finance"},)
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    category_id: Mapped[int] = mapped_column(ForeignKey("finance.expense_category.id"))
+    description: Mapped[str] = mapped_column(String)
+    amount: Mapped[Decimal] = mapped_column(Money)
+    currency: Mapped[str] = mapped_column(String, default="USD")
+    recurrence: Mapped[str] = mapped_column(String, default="one_time")  # one_time | monthly | annual
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date | None] = mapped_column(Date)
+    channel_code: Mapped[str | None] = mapped_column(ForeignKey("sales.channel.code"))
+    is_active: Mapped[bool] = mapped_column(default=True)
+
+
+class InboundReceipt(Base):
+    """Recepción de un contenedor: costo de fábrica, aranceles y flete por unidad de un SKU."""
+
+    __tablename__ = "inbound_receipt"
+    __table_args__ = (UniqueConstraint("container", "po", "sku"), {"schema": "ops"})
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    source: Mapped[str] = mapped_column(String, default="landed_cost_report")
+    container: Mapped[str] = mapped_column(String)
+    received_date: Mapped[date] = mapped_column(Date, index=True)
+    po: Mapped[str] = mapped_column(String, default="")
+    sku: Mapped[str] = mapped_column(String, index=True)
+    description: Mapped[str | None] = mapped_column(String)
+    qty: Mapped[int]
+    fob_unit: Mapped[Decimal] = mapped_column(Money)
+    duty_unit: Mapped[Decimal] = mapped_column(Numeric(14, 6), default=Decimal(0))
+    freight_unit: Mapped[Decimal] = mapped_column(Numeric(14, 6), default=Decimal(0))
+
+
+class Goal(Base):
+    """Meta mensual (ventas, utilidad o unidades), global o de un canal."""
+
+    __tablename__ = "goal"
+    __table_args__ = ({"schema": "finance"},)
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    month: Mapped[date] = mapped_column(Date, index=True)
+    metric: Mapped[str] = mapped_column(String)  # gross_sales | net_profit | units
+    channel_code: Mapped[str | None] = mapped_column(ForeignKey("sales.channel.code"))
+    target: Mapped[Decimal] = mapped_column(Numeric(14, 2))
 
 
 class SyncRun(Base):

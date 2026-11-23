@@ -62,7 +62,16 @@ OUT_SCHEMA = {
     "platform_discount": pl.Float64,
     "list_amount": pl.Float64,
     "ordered_at": pl.Datetime(time_zone="UTC"),
+    "ship_state": pl.Utf8,
 }
+
+
+def _ship_state(order: dict[str, Any]) -> str | None:
+    """Estado de destino (nivel L1 de la dirección). Solo el estado: nunca se guarda la dirección."""
+    for level in (order.get("recipient_address") or {}).get("district_info") or []:
+        if level.get("address_level") == "L1" and level.get("address_name"):
+            return str(level["address_name"]).strip() or None
+    return None
 
 
 def _f(value: Any) -> float:
@@ -160,6 +169,7 @@ def build_order_lines(
                     "platform_discount": g["platform"],
                     "list_amount": g["weight"],
                     "ordered_at": ordered_at,
+                    "ship_state": _ship_state(order),
                 }
             )
     return pl.DataFrame(rows, schema=OUT_SCHEMA), stats

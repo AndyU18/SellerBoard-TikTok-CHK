@@ -10,9 +10,19 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.config import settings
-from app.models import Base, Channel, ChannelRow, CostComponentType
+from app.models import Base, Channel, ChannelRow, CostComponentType, ExpenseCategory
 
 SCHEMAS = ("sales", "catalog", "finance", "ops", "gold", "app", "bronze")
+
+# Las mismas categorías que siembra la migración de finanzas (en SQLite no hay migraciones).
+DEFAULT_EXPENSE_CATEGORIES = [
+    {"code": "software", "name": "Software y herramientas"},
+    {"code": "payroll", "name": "Nómina"},
+    {"code": "storage", "name": "Almacenamiento y bodega"},
+    {"code": "photo_content", "name": "Fotografía y contenido"},
+    {"code": "accounting", "name": "Contabilidad y legales"},
+    {"code": "other", "name": "Otros"},
+]
 
 
 def make_engine(url: str) -> AsyncEngine:
@@ -53,6 +63,8 @@ def create_dev_schema(conn: Connection) -> None:
         conn.execute(
             insert(ChannelRow), [{"code": c.value, "name": c.value} for c in Channel]
         )
+    if not conn.scalar(select(ExpenseCategory.id).limit(1)):
+        conn.execute(insert(ExpenseCategory), DEFAULT_EXPENSE_CATEGORIES)
     if not conn.scalar(select(CostComponentType.id).limit(1)):
         conn.execute(
             insert(CostComponentType).values(
