@@ -87,3 +87,27 @@ export function useScope(): Scope {
   if (!ctx) throw new Error('useScope debe usarse dentro de ScopeProvider')
   return ctx
 }
+
+/**
+ * Fija el canal para todo lo que esté dentro (por ejemplo el espacio "Walmart"): cualquier pantalla que
+ * llame a `useScope()` verá ese canal, sin importar lo elegido en la barra global. El período se hereda y la
+ * tienda se elige aparte (estado propio) para no mezclarla con la de otros canales.
+ */
+export function ForcedChannel({ channel, children }: { channel: Channel; children: ReactNode }) {
+  const parent = useScope()
+  const [account, setAccount] = useState('')
+  const accounts = useMemo(() => parent.accounts.filter((a) => a.channel === channel), [parent.accounts, channel])
+  const value = useMemo<Scope>(
+    () => ({
+      ...parent,
+      channel,
+      channelParam: channel,
+      accounts,
+      account,
+      setChannel: () => undefined, // el canal está fijo aquí
+      setAccount,
+    }),
+    [parent, channel, accounts, account],
+  )
+  return <ScopeContext.Provider value={value}>{children}</ScopeContext.Provider>
+}

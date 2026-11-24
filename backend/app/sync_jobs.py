@@ -28,18 +28,20 @@ from app.connectors.tiktok_ads import (
 from app.connectors.tiktok_shop import TikTokShopClient, TikTokShopSettings
 from app.connectors.tiktok_shop_sync import sync_tiktok_shop
 from app.connectors.walmart import WalmartClient, WalmartSettings, sync_walmart
+from app.connectors.walmart_insights import sync_walmart_insights
 from app.gold import refresh_daily_profit
 from app.models import SyncRun
 
 log = logging.getLogger("chk.sync")
 
 # Orden: primero las órdenes, después las etiquetas de Redo, que se unen a ellas.
-SOURCES = ("tiktok_shop", "tiktok_ads", "walmart", "redo")
+SOURCES = ("tiktok_shop", "tiktok_ads", "walmart", "redo", "walmart_insights")
 LABELS = {
     "tiktok_shop": "TikTok Shop",
     "tiktok_ads": "TikTok Ads (publicidad)",
     "walmart": "Walmart",
     "redo": "Redo (etiquetas)",
+    "walmart_insights": "Walmart (calidad, WFS, feeds)",
 }
 STALE_RUNNING = timedelta(minutes=30)  # una ejecución "en curso" más vieja que esto se considera caída
 
@@ -96,17 +98,25 @@ async def run_redo(session: AsyncSession, days: int) -> dict[str, Any]:
     return {**_public(result), "stats": asdict(stats)}
 
 
+async def run_walmart_insights(session: AsyncSession, days: int) -> dict[str, Any]:
+    """Calidad, WFS, feeds, repricer, plantillas y reportes de Walmart. `days` no aplica: son fotos de hoy."""
+    stats, problems = await sync_walmart_insights(session, WalmartClient())
+    return {"days": days, "stats": stats, "problems": problems}
+
+
 RUNNERS: dict[str, Runner] = {
     "tiktok_shop": run_tiktok,
     "tiktok_ads": run_tiktok_ads,
     "walmart": run_walmart,
     "redo": run_redo,
+    "walmart_insights": run_walmart_insights,
 }
 SETTINGS: dict[str, Callable[[], Any]] = {
     "tiktok_shop": TikTokShopSettings,
     "tiktok_ads": TikTokAdsSettings,
     "walmart": WalmartSettings,
     "redo": RedoSettings,
+    "walmart_insights": WalmartSettings,
 }
 
 

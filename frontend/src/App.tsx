@@ -33,6 +33,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  Store,
   Tag,
   Target,
   TrendingUp,
@@ -84,6 +85,7 @@ import { CreatorProfit } from '@/pages/CreatorProfit'
 import { MinPrice } from '@/pages/MinPrice'
 import { SampleStrategy } from '@/pages/SampleStrategy'
 import { SettlementAging } from '@/pages/SettlementAging'
+import { WalmartHub } from '@/pages/WalmartHub'
 import { OrderProfit } from '@/pages/OrderProfit'
 import { SettlementBreakdown } from '@/pages/SettlementBreakdown'
 import { Simulator } from '@/pages/Simulator'
@@ -120,6 +122,7 @@ type Page =
   | 'cashflow'
   | 'reconciliation'
   | 'ads'
+  | 'walmart'
   | 'actionCenter'
   | 'costRisk'
   | 'settlementAging'
@@ -152,6 +155,7 @@ const icon = 'size-4'
 // El orden del arreglo es el del menú; los grupos se dibujan cuando cambia `group`.
 const NAV: NavItem[] = [
   { group: 'Resumen', id: 'dashboard', label: 'Resumen ejecutivo', icon: <LayoutDashboard className={icon} />, permission: 'profit.view' },
+  { group: 'Canales', id: 'walmart', label: 'Walmart', icon: <Store className={icon} />, permission: 'profit.view' },
   { group: 'Resumen', id: 'actionCenter', label: 'Centro de acciones', icon: <ListChecks className={icon} />, permission: 'profit.view' },
   { group: 'Resumen', id: 'alerts', label: 'Alertas', icon: <Bell className={icon} />, permission: 'profit.view' },
   { group: 'Resumen', id: 'assistant', label: 'Asistente', icon: <Sparkles className={icon} />, permission: 'profit.view' },
@@ -320,14 +324,16 @@ export default function App() {
             <LogOut className="size-4" />
           </button>
         </nav>
-        {current !== 'import' && <ScopeBar />}
-        {current !== 'import' && (
+        {current !== 'import' && current !== 'walmart' && <ScopeBar />}
+        {current !== 'import' && current !== 'walmart' && (
           <PageHeader
             title={nav.find((n) => n.id === current)?.label ?? ''}
             showKpis={!NO_KPI_PAGES.includes(current)}
           />
         )}
-        <main className="flex-1 p-6">
+        {/* El espacio Walmart trae su propia barra, encabezado y pestañas (todo filtrado a Walmart). */}
+        {current === 'walmart' && <WalmartHub />}
+        <main className={current === 'walmart' ? 'hidden' : 'flex-1 p-6'}>
           {current === 'dashboard' && <Dashboard />}
           {current === 'alerts' && <Alerts />}
           {current === 'assistant' && <Assistant />}

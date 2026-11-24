@@ -17,6 +17,7 @@ PROVIDER_MODULES: tuple[str, ...] = (
     "app.settlement_aging",  # dinero atorado en liquidaciones
     "app.sample_policy",  # creadores a quienes dejar de enviar muestras
     "app.min_price",  # SKU vendidos por debajo de su precio mínimo con envío real
+    "app.walmart_actions",  # pedidos por vencer, calidad de listados, feeds con fallos y repricer de Walmart
 )
 
 

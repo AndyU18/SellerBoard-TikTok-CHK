@@ -16,6 +16,7 @@ from decimal import Decimal
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     Computed,
     Date,
     DateTime,
@@ -730,3 +731,145 @@ class RedoTopup(Base):
     status: Mapped[str | None] = mapped_column(String)
     failure_message: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class WalmartListingQuality(Base):
+    """Foto diaria del puntaje de calidad de los listados de Walmart. Tabla ops.walmart_listing_quality."""
+
+    __tablename__ = "walmart_listing_quality"
+    __table_args__ = ({"schema": "ops"},)
+
+    snapshot_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    listing_quality: Mapped[Decimal | None] = mapped_column(Money)
+    offer_score: Mapped[Decimal | None] = mapped_column(Money)
+    rating_review_score: Mapped[Decimal | None] = mapped_column(Money)
+    content_score: Mapped[Decimal | None] = mapped_column(Money)
+    price_score: Mapped[Decimal | None] = mapped_column(Money)
+    shipping_score: Mapped[Decimal | None] = mapped_column(Money)
+    transactibility_score: Mapped[Decimal | None] = mapped_column(Money)
+    item_defect_count: Mapped[int | None]
+    defect_ratio: Mapped[Decimal | None] = mapped_column(Money)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class WalmartWfsInventory(Base):
+    """Última foto de existencias WFS por (sku, nodo). Tabla ops.walmart_wfs_inventory."""
+
+    __tablename__ = "walmart_wfs_inventory"
+    __table_args__ = ({"schema": "ops"},)
+
+    sku: Mapped[str] = mapped_column(String, primary_key=True)
+    node: Mapped[str] = mapped_column(String, primary_key=True)
+    offer_id: Mapped[str | None] = mapped_column(String)
+    node_type: Mapped[str | None] = mapped_column(String)
+    avail_to_sell: Mapped[int] = mapped_column(default=0)
+    on_hand: Mapped[int] = mapped_column(default=0)
+    first_in_stock_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    snapshot_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class WalmartWfsInventoryHistory(Base):
+    """Historial diario acotado de existencias WFS. Tabla ops.walmart_wfs_inventory_history."""
+
+    __tablename__ = "walmart_wfs_inventory_history"
+    __table_args__ = ({"schema": "ops"},)
+
+    sku: Mapped[str] = mapped_column(String, primary_key=True)
+    node: Mapped[str] = mapped_column(String, primary_key=True)
+    snapshot_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    avail_to_sell: Mapped[int] = mapped_column(default=0)
+    on_hand: Mapped[int] = mapped_column(default=0)
+
+
+class WalmartFeed(Base):
+    """Carga (feed) enviada a Walmart y su resultado. Tabla ops.walmart_feed."""
+
+    __tablename__ = "walmart_feed"
+    __table_args__ = ({"schema": "ops"},)
+
+    feed_id: Mapped[str] = mapped_column(String, primary_key=True)
+    feed_type: Mapped[str | None] = mapped_column(String)
+    feed_source: Mapped[str | None] = mapped_column(String)
+    status: Mapped[str | None] = mapped_column(String)
+    items_received: Mapped[int] = mapped_column(default=0)
+    items_succeeded: Mapped[int] = mapped_column(default=0)
+    items_failed: Mapped[int] = mapped_column(default=0)
+    items_processing: Mapped[int] = mapped_column(default=0)
+    data_error_count: Mapped[int] = mapped_column(default=0)
+    system_error_count: Mapped[int] = mapped_column(default=0)
+    feed_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class WalmartRepricerStrategy(Base):
+    """Estrategia del repricer de Walmart con sus reglas en JSON. Tabla ops.walmart_repricer_strategy."""
+
+    __tablename__ = "walmart_repricer_strategy"
+    __table_args__ = ({"schema": "ops"},)
+
+    collection_id: Mapped[str] = mapped_column(String, primary_key=True)
+    strategy: Mapped[str] = mapped_column(String)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    assigned_count: Mapped[int] = mapped_column(default=0)
+    enable_for_promotion: Mapped[bool | None] = mapped_column(Boolean)
+    restore_seller_price_without_target: Mapped[bool | None] = mapped_column(Boolean)
+    enable_buybox_meet_external: Mapped[bool | None] = mapped_column(Boolean)
+    compare_with_3p_offer_only: Mapped[bool | None] = mapped_column(Boolean)
+    strategies: Mapped[list] = mapped_column(JSON, default=list)
+    snapshot_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class WalmartShippingTemplate(Base):
+    """Plantilla de envío de Walmart con su detalle. Tabla ops.walmart_shipping_template."""
+
+    __tablename__ = "walmart_shipping_template"
+    __table_args__ = ({"schema": "ops"},)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str | None] = mapped_column(String)
+    type: Mapped[str | None] = mapped_column(String)
+    rate_model_type: Mapped[str | None] = mapped_column(String)
+    status: Mapped[str | None] = mapped_column(String)
+    detail: Mapped[dict | None] = mapped_column(JSON)
+    snapshot_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class WalmartReportRequest(Base):
+    """Solicitud de reporte de Walmart (ITEM, BUYBOX...). Tabla ops.walmart_report_request."""
+
+    __tablename__ = "walmart_report_request"
+    __table_args__ = ({"schema": "ops"},)
+
+    request_id: Mapped[str] = mapped_column(String, primary_key=True)
+    report_type: Mapped[str] = mapped_column(String)
+    status: Mapped[str | None] = mapped_column(String)
+    report_version: Mapped[str | None] = mapped_column(String)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class WalmartItemSnapshot(Base):
+    """Foto por SKU tomada del último reporte ITEM. Tabla ops.walmart_item_snapshot."""
+
+    __tablename__ = "walmart_item_snapshot"
+    __table_args__ = ({"schema": "ops"},)
+
+    sku: Mapped[str] = mapped_column(String, primary_key=True)
+    item_id: Mapped[str | None] = mapped_column(String)
+    product_name: Mapped[str | None] = mapped_column(String)
+    publish_status: Mapped[str | None] = mapped_column(String)
+    lifecycle_status: Mapped[str | None] = mapped_column(String)
+    status_change_reason: Mapped[str | None] = mapped_column(String)
+    fulfillment_type: Mapped[str | None] = mapped_column(String)
+    price: Mapped[Decimal | None] = mapped_column(Money)
+    buybox_price: Mapped[Decimal | None] = mapped_column(Money)
+    buybox_eligible: Mapped[bool | None] = mapped_column(Boolean)
+    repricer_strategy: Mapped[str | None] = mapped_column(String)
+    repricer_status: Mapped[str | None] = mapped_column(String)
+    min_allowed_price: Mapped[Decimal | None] = mapped_column(Money)
+    max_allowed_price: Mapped[Decimal | None] = mapped_column(Money)
+    reviews_count: Mapped[int | None]
+    average_rating: Mapped[Decimal | None] = mapped_column(Money)
+    report_request_id: Mapped[str | None] = mapped_column(String)
+    snapshot_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))

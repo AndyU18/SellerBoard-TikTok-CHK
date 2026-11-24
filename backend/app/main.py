@@ -34,6 +34,8 @@ from app.sku_api import router as sku_router
 from app.sync_jobs import auto_sync_loop
 from app.users_admin_api import router as users_admin_router
 from app.users_api import router as users_router
+from app.walmart_api import router as walmart_router
+from app.walmart_payments_api import router as walmart_payments_router
 
 
 @asynccontextmanager
@@ -69,6 +71,8 @@ app.include_router(redo_router)
 app.include_router(ads_router)
 app.include_router(chartdata_dinero_router)
 app.include_router(action_router)
+app.include_router(walmart_router)
+app.include_router(walmart_payments_router)
 app.include_router(cost_risk_router)
 app.include_router(settlement_aging_router)  # antes que settlement_router: "/aging" no debe caer en "/{id}/waterfall"
 app.include_router(sample_policy_router)
