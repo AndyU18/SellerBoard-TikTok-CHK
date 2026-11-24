@@ -25,3 +25,6 @@ backups/
 
 # Variables públicas de docker compose (las VITE_ del frontend)
 /.env
+
+# TikTok orgánico (tokens OAuth del dueño; rotan, nunca commitear)
+tiktok_organic_tokens*.json

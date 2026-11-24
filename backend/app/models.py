@@ -873,3 +873,59 @@ class WalmartItemSnapshot(Base):
     average_rating: Mapped[Decimal | None] = mapped_column(Money)
     report_request_id: Mapped[str | None] = mapped_column(String)
     snapshot_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class TikTokOrganicAccount(Base):
+    """Foto diaria de la cuenta de TikTok orgánico (NO TikTok Shop). Tabla ops.tiktok_organic_account."""
+
+    __tablename__ = "tiktok_organic_account"
+    __table_args__ = ({"schema": "ops"},)
+
+    snapshot_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    open_id: Mapped[str | None] = mapped_column(String)
+    username: Mapped[str | None] = mapped_column(String)
+    display_name: Mapped[str | None] = mapped_column(String)
+    avatar_url: Mapped[str | None] = mapped_column(String)
+    bio: Mapped[str | None] = mapped_column(String)
+    profile_url: Mapped[str | None] = mapped_column(String)
+    is_verified: Mapped[bool | None] = mapped_column(Boolean)
+    follower_count: Mapped[int | None] = mapped_column(BigInteger)
+    following_count: Mapped[int | None] = mapped_column(BigInteger)
+    likes_count: Mapped[int | None] = mapped_column(BigInteger)
+    video_count: Mapped[int | None]
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class TikTokOrganicVideo(Base):
+    """Datos estables de un video orgánico. Tabla ops.tiktok_organic_video."""
+
+    __tablename__ = "tiktok_organic_video"
+    __table_args__ = ({"schema": "ops"},)
+
+    video_id: Mapped[str] = mapped_column(String, primary_key=True)
+    title: Mapped[str | None] = mapped_column(String)
+    description: Mapped[str | None] = mapped_column(String)
+    cover_url: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    duration_seconds: Mapped[int | None]
+    share_url: Mapped[str | None] = mapped_column(String)
+    embed_link: Mapped[str | None] = mapped_column(String)
+    width: Mapped[int | None]
+    height: Mapped[int | None]
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class TikTokOrganicVideoMetric(Base):
+    """Foto diaria de las métricas de un video (la API solo da el valor actual). ops.tiktok_organic_video_metric."""
+
+    __tablename__ = "tiktok_organic_video_metric"
+    __table_args__ = ({"schema": "ops"},)
+
+    video_id: Mapped[str] = mapped_column(
+        String, ForeignKey("ops.tiktok_organic_video.video_id", ondelete="CASCADE"), primary_key=True
+    )
+    snapshot_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    views: Mapped[int] = mapped_column(BigInteger, default=0)
+    likes: Mapped[int] = mapped_column(BigInteger, default=0)
+    comments: Mapped[int] = mapped_column(BigInteger, default=0)
+    shares: Mapped[int] = mapped_column(BigInteger, default=0)

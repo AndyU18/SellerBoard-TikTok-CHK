@@ -25,23 +25,30 @@ from app.connectors.tiktok_ads import (
     TikTokAdsSettings,
     sync_tiktok_ads,
 )
+from app.connectors.tiktok_organic import (
+    ConnectedTikTokOrganicSettings,
+    TikTokOrganicClient,
+    fetch_snapshot,
+)
 from app.connectors.tiktok_shop import TikTokShopClient, TikTokShopSettings
 from app.connectors.tiktok_shop_sync import sync_tiktok_shop
 from app.connectors.walmart import WalmartClient, WalmartSettings, sync_walmart
 from app.connectors.walmart_insights import sync_walmart_insights
 from app.gold import refresh_daily_profit
 from app.models import SyncRun
+from app.tiktok_organic_ops import save_snapshot as save_tiktok_organic
 
 log = logging.getLogger("chk.sync")
 
 # Orden: primero las órdenes, después las etiquetas de Redo, que se unen a ellas.
-SOURCES = ("tiktok_shop", "tiktok_ads", "walmart", "redo", "walmart_insights")
+SOURCES = ("tiktok_shop", "tiktok_ads", "walmart", "redo", "walmart_insights", "tiktok_organic")
 LABELS = {
     "tiktok_shop": "TikTok Shop",
     "tiktok_ads": "TikTok Ads (publicidad)",
     "walmart": "Walmart",
     "redo": "Redo (etiquetas)",
     "walmart_insights": "Walmart (calidad, WFS, feeds)",
+    "tiktok_organic": "TikTok orgánico (perfil y videos)",
 }
 STALE_RUNNING = timedelta(minutes=30)  # una ejecución "en curso" más vieja que esto se considera caída
 
@@ -104,12 +111,22 @@ async def run_walmart_insights(session: AsyncSession, days: int) -> dict[str, An
     return {"days": days, "stats": stats, "problems": problems}
 
 
+async def run_tiktok_organic(session: AsyncSession, days: int) -> dict[str, Any]:
+    """Foto de hoy del perfil y los videos orgánicos. `days` no aplica: la API solo da valores actuales."""
+    today = datetime.now(UTC).date()
+    # La lectura es HTTP síncrono (con renovación de token): fuera del bucle de eventos.
+    snapshot = await asyncio.to_thread(lambda: fetch_snapshot(TikTokOrganicClient(), today))
+    stats = await save_tiktok_organic(session, snapshot, today, datetime.now(UTC))
+    return {"days": days, "stats": stats, "problems": snapshot.problems}
+
+
 RUNNERS: dict[str, Runner] = {
     "tiktok_shop": run_tiktok,
     "tiktok_ads": run_tiktok_ads,
     "walmart": run_walmart,
     "redo": run_redo,
     "walmart_insights": run_walmart_insights,
+    "tiktok_organic": run_tiktok_organic,
 }
 SETTINGS: dict[str, Callable[[], Any]] = {
     "tiktok_shop": TikTokShopSettings,
@@ -117,6 +134,7 @@ SETTINGS: dict[str, Callable[[], Any]] = {
     "walmart": WalmartSettings,
     "redo": RedoSettings,
     "walmart_insights": WalmartSettings,
+    "tiktok_organic": ConnectedTikTokOrganicSettings,  # exige archivo de tokens: sin autorización se omite
 }
 
 
