@@ -21,7 +21,8 @@ interface Scope {
   setPreset: (p: Preset) => void
 }
 
-const STORAGE_KEY = 'chk.scope'
+// v2: el período por defecto pasó a "Todo"; la clave nueva descarta el "90 días" que quedó guardado antes.
+const STORAGE_KEY = 'chk.scope.v2'
 const ScopeContext = createContext<Scope | null>(null)
 
 type Stored = { channel: ChannelFilter; account: string; preset: Preset }
@@ -31,12 +32,12 @@ function load(): Stored {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const v = JSON.parse(raw)
-      return { channel: v.channel ?? 'all', account: v.account ?? '', preset: v.preset ?? '90d' }
+      return { channel: v.channel ?? 'all', account: v.account ?? '', preset: v.preset ?? 'all' }
     }
   } catch {
     /* sin almacenamiento: se usa el valor por defecto */
   }
-  return { channel: 'all', account: '', preset: '90d' }
+  return { channel: 'all', account: '', preset: 'all' }
 }
 
 export function ScopeProvider({ children }: { children: ReactNode }) {
