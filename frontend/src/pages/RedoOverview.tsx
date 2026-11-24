@@ -1,30 +1,23 @@
-import { useState } from 'react'
-import {
-  Bar,
-  CartesianGrid,
-  ComposedChart,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
+import { useMemo } from 'react'
 
-import { Callout, ErrorAlert, Hint, Kpi, PILL, Pill, Segmented, pct1 } from '@/components/analytics/ui'
+import { Callout, ErrorAlert, Hint, Kpi, PILL, Pill, pct1 } from '@/components/analytics/ui'
+import { ComboChart } from '@/components/charts/ComboChart'
+import { Donut } from '@/components/charts/Donut'
+import { HeatGrid } from '@/components/charts/HeatGrid'
+import { ChartCard, COLOR, EmptyChart } from '@/components/charts/kit'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { count, money, tone } from '@/lib/format'
-import { redo, type RedoOrigin } from '@/lib/redo'
+import { daysFromPreset, redo, type RedoOrigin } from '@/lib/redo'
+import { useScope } from '@/lib/scope'
 import { useAsync } from '@/lib/useAsync'
 
-const PERIODS = [
-  { value: '30', label: '30 días' },
-  { value: '90', label: '90 días' },
-  { value: '180', label: '180 días' },
-  { value: '365', label: '365 días' },
-]
+const WEEKDAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+const DAY_MS = 86_400_000
+
+const isoLocal = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const parseDay = (s: string) => new Date(`${s}T00:00:00`)
 
 const ORIGIN: Record<RedoOrigin, { explain: string; pill: string }> = {
   tiktok_shop: { explain: 'Ya está en las ventas de la app.', pill: PILL.green },
@@ -40,32 +33,70 @@ const ORIGIN: Record<RedoOrigin, { explain: string; pill: string }> = {
   otro: { explain: 'No coincide con ninguna venta conocida (órdenes viejas, otra tienda o sin número de orden).', pill: PILL.slate },
 }
 
-const usdAxis = (v: number) => `$${v.toLocaleString('en-US')}`
-const shortDay = (d: string) => d.slice(5)
+const shortDay = (v: string | number) => String(v).slice(5)
 
 export function RedoOverview() {
-  const [days, setDays] = useState('90')
-  const data = useAsync(() => redo.overview(Number(days)), [days])
+  const { preset } = useScope()
+  const days = daysFromPreset(preset)
+  const data = useAsync(() => redo.overview(days), [days])
   const d = data.data
   const k = d?.kpis
   const monthly = d?.by_month ?? []
-  const daily = d?.by_day ?? []
   const covered = (d?.coverage ?? []).filter((c) => c.origin !== 'tiktok_shop' && c.origin !== 'walmart')
   const coveredOk = (d?.coverage ?? []).filter((c) => c.origin === 'tiktok_shop' || c.origin === 'walmart')
+  const empty = (msg: string) => <EmptyChart>{data.loading ? 'Cargando…' : msg}</EmptyChart>
+
+  // Serie diaria sin huecos (los días sin cargos cuentan 0) con promedio móvil de 7 días.
+  const daily = useMemo(() => {
+    const rows = d?.by_day ?? []
+    if (!rows.length) return []
+    const byDate = new Map(rows.map((r) => [r.date, r.net]))
+    const out: { date: string; net: number; avg7: number }[] = []
+    const last = parseDay(rows[rows.length - 1].date)
+    const vals: number[] = []
+    for (let t = parseDay(rows[0].date); t <= last; t = new Date(t.getTime() + DAY_MS)) {
+      const key = isoLocal(t)
+      const net = byDate.get(key) ?? 0
+      vals.push(net)
+      const win = vals.slice(-7)
+      out.push({ date: key, net, avg7: Math.round((win.reduce((a, v) => a + v, 0) / win.length) * 100) / 100 })
+    }
+    return out
+  }, [d?.by_day])
+
+  // Gasto neto por día de la semana (filas) × semana (columnas, empiezan en lunes).
+  const heat = useMemo(() => {
+    const rows = d?.by_day ?? []
+    if (!rows.length) return null
+    const monday = (s: string) => {
+      const t = parseDay(s)
+      return new Date(t.getTime() - ((t.getDay() + 6) % 7) * DAY_MS)
+    }
+    const first = monday(rows[0].date)
+    const weeks = Math.round((monday(rows[rows.length - 1].date).getTime() - first.getTime()) / (7 * DAY_MS)) + 1
+    const values = WEEKDAYS.map(() => Array.from({ length: weeks }, () => 0))
+    for (const r of rows) {
+      const t = parseDay(r.date)
+      const w = Math.round((monday(r.date).getTime() - first.getTime()) / (7 * DAY_MS))
+      values[(t.getDay() + 6) % 7][w] += r.net
+    }
+    const cols = Array.from({ length: weeks }, (_, i) => isoLocal(new Date(first.getTime() + i * 7 * DAY_MS)).slice(5))
+    return { values, cols }
+  }, [d?.by_day])
+
+  const costSlices = (d?.by_subtype ?? []).filter((s) => s.is_cost).map((s) => ({ id: s.subtype, label: s.label, value: s.amount }))
+  const covSlices = (d?.coverage ?? []).map((c) => ({ id: c.origin, label: c.label, value: c.orders }))
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Redo: gasto en envíos</h1>
-          {d && (
-            <p className="text-muted-foreground text-xs">
-              Del {d.window.start} al {d.window.end}
-              {d.last_charge ? ` · último cargo: ${d.last_charge.slice(0, 10)}` : ''}
-            </p>
-          )}
-        </div>
-        <Segmented label="Periodo" value={days} options={PERIODS} onChange={setDays} />
+      <div>
+        <h1 className="text-2xl font-semibold">Redo: gasto en envíos</h1>
+        {d && (
+          <p className="text-muted-foreground text-xs">
+            Del {d.window.start} al {d.window.end} (período global: {days} días)
+            {d.last_charge ? ` · último cargo: ${d.last_charge.slice(0, 10)}` : ''}
+          </p>
+        )}
       </div>
 
       <ErrorAlert message={data.error} />
@@ -116,70 +147,87 @@ export function RedoOverview() {
         </Callout>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Gasto por mes</CardTitle>
-        </CardHeader>
-        <CardContent className="h-80">
-          {monthly.length === 0 ? (
-            <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
-              {data.loading ? 'Cargando…' : 'Aún no hay cargos de Redo.'}
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={monthly}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="month" />
-                <YAxis yAxisId="l" tickFormatter={usdAxis} width={72} />
-                <YAxis yAxisId="r" orientation="right" tickFormatter={(v: number) => `$${v}`} width={48} />
-                <Tooltip formatter={(v) => money(Number(v))} />
-                <Legend />
-                <Bar yAxisId="l" dataKey="labels" name="Etiquetas" stackId="m" fill="#2563eb" />
-                <Bar yAxisId="l" dataKey="surcharges" name="Correcciones" stackId="m" fill="#f59e0b" />
-                <Bar yAxisId="l" dataKey="voids" name="Anulaciones" stackId="m" fill="#16a34a" />
-                <Line yAxisId="l" dataKey="net" name="Neto" stroke="#0f172a" strokeWidth={2} dot={false} />
-                <Line
-                  yAxisId="r"
-                  dataKey="avg_per_order"
-                  name="Costo promedio por orden"
-                  stroke="#dc2626"
-                  strokeDasharray="4 3"
-                  dot={false}
-                  connectNulls
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
-          )}
-        </CardContent>
-      </Card>
+      <ChartCard
+        title="Gasto por mes"
+        subtitle="Barras: etiquetas, correcciones y anulaciones (apilan). Línea (eje derecho): costo promedio por orden. Toca la leyenda para apagar series."
+        filename="redo-gasto-por-mes"
+        csv={monthly.map((m) => ({
+          Mes: m.month,
+          Etiquetas: m.labels,
+          Correcciones: m.surcharges,
+          Anulaciones: m.voids,
+          Neto: m.net,
+          Ordenes: m.orders,
+          'Costo promedio por orden': m.avg_per_order,
+        }))}
+      >
+        {monthly.length === 0 ? (
+          empty('Aún no hay cargos de Redo.')
+        ) : (
+          <ComboChart
+            data={monthly}
+            xKey="month"
+            rightFormat={(v) => `$${v.toFixed(0)}`}
+            series={[
+              { key: 'labels', label: 'Etiquetas', type: 'bar', stack: 'm', color: '#2563eb', format: money },
+              { key: 'surcharges', label: 'Correcciones', type: 'bar', stack: 'm', color: COLOR.amber, format: money },
+              { key: 'voids', label: 'Anulaciones', type: 'bar', stack: 'm', color: COLOR.good, format: money },
+              { key: 'avg_per_order', label: 'Costo promedio por orden', type: 'line', axis: 'right', color: COLOR.bad, format: money },
+            ]}
+          />
+        )}
+      </ChartCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Gasto neto por día</CardTitle>
-        </CardHeader>
-        <CardContent className="h-64">
-          {daily.length === 0 ? (
-            <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
-              {data.loading ? 'Cargando…' : 'Sin cargos en este periodo.'}
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={daily}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="date" tickFormatter={shortDay} minTickGap={24} />
-                <YAxis tickFormatter={usdAxis} width={72} />
-                <Tooltip formatter={(v) => money(Number(v))} labelFormatter={(l) => String(l)} />
-                <Line dataKey="net" name="Gasto neto" stroke="#2563eb" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </CardContent>
-      </Card>
+      <ChartCard
+        title="Gasto neto por día"
+        subtitle="Barras: gasto del día. Línea: promedio móvil de 7 días (los días sin cargos cuentan como $0)."
+        filename="redo-gasto-diario"
+        csv={daily.map((r) => ({ Fecha: r.date, 'Gasto neto': r.net, 'Promedio 7 dias': r.avg7 }))}
+      >
+        {daily.length === 0 ? (
+          empty('Sin cargos en este período.')
+        ) : (
+          <ComboChart
+            data={daily}
+            xKey="date"
+            xFormat={shortDay}
+            height={280}
+            series={[
+              { key: 'net', label: 'Gasto neto', type: 'bar', color: '#93c5fd', format: money },
+              { key: 'avg7', label: 'Promedio móvil 7 días', type: 'line', color: '#1d4ed8', format: money },
+            ]}
+          />
+        )}
+      </ChartCard>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <ChartCard
+          title="Por tipo de cargo"
+          subtitle="Solo costos (los créditos y ajustes de saldo no entran)."
+          filename="redo-tipo-de-cargo"
+          csv={(d?.by_subtype ?? []).map((s) => ({ Tipo: s.label, Cargos: s.count, Monto: s.amount, 'Es costo': s.is_cost ? 'sí' : 'no' }))}
+        >
+          {costSlices.length === 0 ? empty('Sin cargos en este período.') : <Donut slices={costSlices} format={money} centerLabel="costo total" />}
+        </ChartCard>
+
+        <ChartCard
+          title="Gasto neto: día de la semana × semana"
+          subtitle="Cada columna es una semana (empieza el lunes, MM-DD). Más oscuro = más gasto."
+          filename="redo-mapa-de-calor"
+          csv={
+            heat
+              ? heat.values.flatMap((row, ri) => row.map((v, ci) => ({ Dia: WEEKDAYS[ri], 'Semana desde': heat.cols[ci], 'Gasto neto': Math.round(v * 100) / 100 })))
+              : []
+          }
+        >
+          {heat ? <HeatGrid rowLabels={WEEKDAYS} colLabels={heat.cols} values={heat.values} format={money} /> : empty('Sin cargos en este período.')}
+        </ChartCard>
+      </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Por tipo de cargo</CardTitle>
+            <CardTitle>Detalle por tipo de cargo</CardTitle>
           </CardHeader>
           <CardContent className="overflow-x-auto">
             <Table>
@@ -249,15 +297,14 @@ export function RedoOverview() {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Cobertura: etiquetas frente a las ventas de la app</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-muted-foreground text-sm">
-            Cada orden con etiqueta se busca entre las ventas de la app. Las que no se encuentran no tienen ingreso con
-            el cual medir su costo.
-          </p>
+      <ChartCard
+        title="Cobertura: etiquetas frente a las ventas de la app"
+        subtitle="Cada orden con etiqueta se busca entre las ventas de la app. Las que no se encuentran no tienen ingreso con el cual medir su costo."
+        filename="redo-cobertura"
+        csv={(d?.coverage ?? []).map((c) => ({ Origen: c.label, Ordenes: c.orders, Monto: c.amount }))}
+      >
+        <div className="space-y-4">
+          {covSlices.length === 0 ? empty('Sin órdenes con etiqueta en este período.') : <Donut slices={covSlices} format={count} centerLabel="órdenes" />}
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
@@ -269,13 +316,6 @@ export function RedoOverview() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(d?.coverage.length ?? 0) === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-muted-foreground py-8 text-center">
-                      {data.loading ? 'Cargando…' : 'Sin órdenes con etiqueta en este periodo.'}
-                    </TableCell>
-                  </TableRow>
-                )}
                 {[...coveredOk, ...covered].map((c) => (
                   <TableRow key={c.origin}>
                     <TableCell>
@@ -291,8 +331,8 @@ export function RedoOverview() {
               </TableBody>
             </Table>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </ChartCard>
 
       <Hint>
         El gasto neto suma etiquetas, correcciones del carrier y comisiones, y resta las etiquetas anuladas y los

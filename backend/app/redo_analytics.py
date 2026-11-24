@@ -400,9 +400,27 @@ async def redo_charges(
         needle = q.strip().lower()
         rows = [r for r in rows if needle in (r.order_name or "").lower() or needle in (r.note or "").lower()]
     rows.sort(key=lambda r: r.created_at, reverse=True)
+    sub_totals: dict[str, list[float]] = defaultdict(lambda: [0, 0.0])
+    day_totals: dict[date, float] = defaultdict(float)
+    for r in rows:
+        sub_totals[r.subtype][0] += 1
+        sub_totals[r.subtype][1] += _f(r.amount)
+        day_totals[_day(r.created_at)] += _f(r.amount)
     return {
         "total": len(rows),
         "amount": sum(_f(r.amount) for r in rows),
+        # Resumen de TODO el filtro (no solo de la página), para las gráficas de la pantalla.
+        "by_subtype": [
+            {
+                "subtype": k,
+                "label": SUBTYPE_NAMES.get(k, k),
+                "count": int(v[0]),
+                "amount": round(v[1], 2),
+                "is_cost": _is_cost(k),
+            }
+            for k, v in sorted(sub_totals.items(), key=lambda kv: -abs(kv[1][1]))
+        ],
+        "by_day": [{"date": d.isoformat(), "amount": round(a, 2)} for d, a in sorted(day_totals.items())],
         "subtypes": [{"value": k, "label": v} for k, v in SUBTYPE_NAMES.items()],
         "rows": [
             {

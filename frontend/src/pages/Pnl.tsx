@@ -1,34 +1,52 @@
 import { useMemo, useState } from 'react'
 
 import { ChannelBadge } from '@/components/ChannelBadge'
-import { Callout, ErrorAlert, Hint, pct1 } from '@/components/analytics/ui'
+import { Callout, ErrorAlert, Hint } from '@/components/analytics/ui'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { CHANNEL_LABEL, CHANNELS, type Channel } from '@/lib/api'
+import { ComboChart, type ComboSeries } from '@/components/charts/ComboChart'
+import { ExpandableTable, type TreeRow } from '@/components/charts/ExpandableTable'
+import { axisPct, ChartCard, EmptyChart, type CsvRow } from '@/components/charts/kit'
+import { Waterfall, type WaterfallStep } from '@/components/charts/Waterfall'
+import { api, CHANNEL_LABEL, CHANNELS, type Channel } from '@/lib/api'
 import { analytics, type PnlRow, type Recurrence } from '@/lib/analytics'
-import { money, tone } from '@/lib/format'
+import { count, money, neg } from '@/lib/format'
 import { useScope } from '@/lib/scope'
 import { useAsync } from '@/lib/useAsync'
 
-type Line = { key: keyof PnlRow; label: string; bold?: boolean; cost?: boolean }
+type MoneyKey = Exclude<keyof PnlRow, 'margin'>
 
-const LINES: Line[] = [
-  { key: 'gross_sales', label: 'Ventas brutas' },
-  { key: 'promo', label: 'Promociones del vendedor', cost: true },
-  { key: 'net_sales', label: 'Ventas netas', bold: true },
-  { key: 'platform_fees', label: 'Comisiones de la plataforma', cost: true },
-  { key: 'shipping_cost', label: 'Envío', cost: true },
-  { key: 'refund_amount', label: 'Reembolsos', cost: true },
-  { key: 'cogs', label: 'Costo del producto', cost: true },
-  { key: 'gross_profit', label: 'Utilidad bruta', bold: true },
-  { key: 'ad_spend', label: 'Publicidad', cost: true },
-  { key: 'contribution', label: 'Contribución', bold: true },
-  { key: 'expenses', label: 'Gastos indirectos', cost: true },
-  { key: 'net_profit', label: 'Utilidad neta', bold: true },
-  { key: 'margin', label: 'Margen sobre ventas netas' },
-]
+const ZERO: PnlRow = {
+  gross_sales: 0,
+  promo: 0,
+  net_sales: 0,
+  platform_fees: 0,
+  shipping_cost: 0,
+  refund_amount: 0,
+  cogs: 0,
+  gross_profit: 0,
+  ad_spend: 0,
+  contribution: 0,
+  expenses: 0,
+  net_profit: 0,
+  margin: null,
+}
+
+/** Suma varias filas del estado de resultados (el margen se recalcula sobre ventas netas). */
+function addRows(rows: PnlRow[]): PnlRow {
+  const out = { ...ZERO }
+  for (const r of rows) for (const k of Object.keys(ZERO) as (keyof PnlRow)[]) if (k !== 'margin') out[k] += r[k] ?? 0
+  out.margin = out.net_sales ? out.net_profit / out.net_sales : null
+  return out
+}
+
+/** Una columna de la tabla (un mes o el total) con su desglose por canal y sus unidades. */
+type Col = { total: PnlRow; byChannel: Map<Channel, PnlRow>; units: number; unitsBy: Map<Channel, number> }
+
+const ratio = (n: number, d: number) => (d ? n / d : null)
+const pctText = (v: number | null) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`)
 
 const RECURRENCE: Record<Recurrence, string> = {
   one_time: 'Una vez',
@@ -244,28 +262,143 @@ function Expenses({ onChange }: { onChange: () => void }) {
 
 export function Pnl() {
   const scope = useScope()
-  const [start, setStart] = useState(monthsAgo(5))
-  const [end, setEnd] = useState(monthsAgo(0))
+  // El rango sale del filtro global (meses completos); "Todo" muestra los últimos 12 meses.
+  const [fallback] = useState(() => ({ from: `${monthsAgo(11)}-01`, to: `${monthsAgo(0)}-01` }))
+  const start = `${(scope.range.start ?? fallback.from).slice(0, 7)}-01`
+  const end = `${(scope.range.end ?? fallback.to).slice(0, 7)}-01`
   const [version, setVersion] = useState(0)
   const [downloadError, setDownloadError] = useState<string | null>(null)
-  const data = useAsync(
-    () => analytics.pnl(`${start}-01`, `${end}-01`, scope.channelParam),
-    [start, end, scope.channelParam, version],
+  const data = useAsync(() => analytics.pnl(start, end, scope.channelParam), [start, end, scope.channelParam, version])
+  const unitsData = useAsync(
+    () => api.timeseries('month', { start, end: scope.range.end, channel: scope.channelParam, account: scope.account }),
+    [start, scope.range.end, scope.channelParam, scope.account],
   )
   const d = data.data
   const months = useMemo(() => d?.months ?? [], [d])
 
-  const fmt = (line: Line, row: PnlRow) => {
-    const v = row[line.key]
-    if (line.key === 'margin') return pct1(v)
-    if (v == null) return '—'
-    return money(line.cost && v !== 0 ? -v : v)
-  }
+  const cols = useMemo<Col[]>(() => {
+    const units = new Map<string, Map<Channel, number>>()
+    for (const r of unitsData.data?.rows ?? []) {
+      if (!r.period || !r.channel) continue
+      const key = r.period.slice(0, 7)
+      const m = units.get(key) ?? new Map<Channel, number>()
+      m.set(r.channel, (m.get(r.channel) ?? 0) + r.units)
+      units.set(key, m)
+    }
+    const monthCols = months.map<Col>((m) => {
+      const unitsBy = units.get(m.month.slice(0, 7)) ?? new Map<Channel, number>()
+      return {
+        total: m.total,
+        byChannel: new Map(m.channels.map((c) => [c.channel, c])),
+        units: [...unitsBy.values()].reduce((s, v) => s + v, 0),
+        unitsBy,
+      }
+    })
+    if (!d || !monthCols.length) return []
+    const byChannel = new Map<Channel, PnlRow>()
+    const unitsBy = new Map<Channel, number>()
+    for (const ch of CHANNELS) {
+      const rows = monthCols.map((c) => c.byChannel.get(ch)).filter((r): r is PnlRow => !!r)
+      if (rows.length) byChannel.set(ch, addRows(rows))
+      const u = monthCols.reduce((s, c) => s + (c.unitsBy.get(ch) ?? 0), 0)
+      if (u) unitsBy.set(ch, u)
+    }
+    return [...monthCols, { total: d.summary, byChannel, units: monthCols.reduce((s, c) => s + c.units, 0), unitsBy }]
+  }, [d, months, unitsData.data])
+
+  const columns = [...months.map((m) => m.month.slice(0, 7)), 'Total']
+  const channelsPresent = CHANNELS.filter((ch) => cols.some((c) => c.byChannel.has(ch)))
+
+  const tree = useMemo<TreeRow[]>(() => {
+    if (!cols.length) return []
+    const money$ = (cost: boolean) => (v: number) => money(cost ? neg(v) : v)
+    /** Fila de dinero; se abre por canal. */
+    const line = (key: MoneyKey, label: string, opts: { cost?: boolean; bold?: boolean; split?: boolean } = {}): TreeRow => {
+      const f = money$(!!opts.cost)
+      return {
+        id: key,
+        label,
+        bold: opts.bold,
+        cells: cols.map((c) => f(c.total[key])),
+        negative: cols.map((c) => (opts.cost ? false : c.total[key] < 0)),
+        children:
+          opts.split === false
+            ? undefined
+            : channelsPresent.map((ch) => ({
+                id: `${key}:${ch}`,
+                label: CHANNEL_LABEL[ch],
+                cells: cols.map((c) => f(c.byChannel.get(ch)?.[key] ?? 0)),
+                negative: cols.map((c) => (opts.cost ? false : (c.byChannel.get(ch)?.[key] ?? 0) < 0)),
+              })),
+      }
+    }
+    /** Fila de indicador (sombreada) calculada con un cociente. */
+    const kpi = (id: string, label: string, get: (r: PnlRow) => number | null): TreeRow => ({
+      id,
+      label,
+      shaded: true,
+      cells: cols.map((c) => pctText(get(c.total))),
+      negative: cols.map((c) => (get(c.total) ?? 0) < 0),
+    })
+    return [
+      line('gross_sales', 'Ventas'),
+      {
+        id: 'units',
+        label: 'Unidades',
+        cells: cols.map((c) => count(c.units)),
+        children: channelsPresent.map((ch) => ({ id: `units:${ch}`, label: CHANNEL_LABEL[ch], cells: cols.map((c) => count(c.unitsBy.get(ch) ?? 0)) })),
+      },
+      line('promo', 'Promociones', { cost: true }),
+      line('platform_fees', 'Comisiones de la plataforma', { cost: true }),
+      line('shipping_cost', 'Envío', { cost: true }),
+      line('refund_amount', 'Reembolsos', { cost: true }),
+      line('cogs', 'Costo de bienes', { cost: true }),
+      line('gross_profit', 'Ganancia bruta', { bold: true }),
+      line('ad_spend', 'Publicidad', { cost: true }),
+      line('expenses', 'Gastos indirectos', { cost: true }),
+      line('net_profit', 'Ganancia neta', { bold: true }),
+      kpi('tacos', 'TACOS (publicidad / ventas)', (r) => ratio(r.ad_spend, r.gross_sales)),
+      kpi('refund_rate', 'Tasa de reembolso', (r) => ratio(r.refund_amount, r.gross_sales)),
+      kpi('margin', 'Margen (sobre ventas netas)', (r) => r.margin),
+      kpi('roi', 'ROI (ganancia / costo de bienes)', (r) => ratio(r.net_profit, r.cogs)),
+    ]
+  }, [cols, channelsPresent])
+
+  const steps = useMemo<WaterfallStep[]>(() => {
+    const s = d?.summary
+    if (!s || !months.length) return []
+    const cost = (id: string, label: string, v: number): WaterfallStep => ({ id, label, kind: 'delta', value: neg(v) })
+    return [
+      { id: 'gross_sales', label: 'Ventas', kind: 'total', value: s.gross_sales },
+      cost('promo', 'Promociones', s.promo),
+      cost('platform_fees', 'Comisiones', s.platform_fees),
+      cost('shipping_cost', 'Envío', s.shipping_cost),
+      cost('refund_amount', 'Reembolsos', s.refund_amount),
+      cost('cogs', 'Costo de bienes', s.cogs),
+      cost('ad_spend', 'Publicidad', s.ad_spend),
+      cost('expenses', 'Gastos indirectos', s.expenses),
+      { id: 'net_profit', label: 'Ganancia neta', kind: 'total', value: s.net_profit },
+    ]
+  }, [d, months])
+  const [step, setStep] = useState<WaterfallStep | null>(null)
+
+  const monthChart = months.map((m) => ({
+    month: m.month.slice(0, 7),
+    net_sales: m.total.net_sales,
+    net_profit: m.total.net_profit,
+    margin: m.total.margin,
+  }))
+  const monthSeries: ComboSeries[] = [
+    { key: 'net_sales', label: 'Ventas netas', type: 'bar', color: '#3b82f6', format: money },
+    { key: 'net_profit', label: 'Ganancia neta', type: 'bar', color: '#10b981', format: money },
+    { key: 'margin', label: 'Margen (eje derecho)', type: 'line', axis: 'right', color: '#f59e0b', format: pctText },
+  ]
+  const tableCsv: CsvRow[] = tree.flatMap((r) => [r, ...(r.children ?? [])]).map((r) => ({ concepto: r.label, ...Object.fromEntries(columns.map((c, i) => [c, r.cells[i]])) }))
 
   async function download() {
     setDownloadError(null)
     try {
-      const blob = await analytics.pnlCsv(`${start}-01`, `${end}-01`, scope.channelParam)
+      const blob = await analytics.pnlCsv(start, end, scope.channelParam)
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -281,29 +414,9 @@ export function Pnl() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h1 className="text-2xl font-semibold">Estado de resultados</h1>
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-muted-foreground text-xs">Desde</span>
-            <Input
-              type="month"
-              className="h-9 w-40"
-              value={start}
-              onChange={(e) => e.target.value && setStart(e.target.value)}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-muted-foreground text-xs">Hasta</span>
-            <Input
-              type="month"
-              className="h-9 w-40"
-              value={end}
-              onChange={(e) => e.target.value && setEnd(e.target.value)}
-            />
-          </label>
-          <Button variant="outline" size="sm" onClick={download}>
-            Descargar CSV
-          </Button>
-        </div>
+        <Button variant="outline" size="sm" onClick={download}>
+          Descargar CSV
+        </Button>
       </div>
 
       <ErrorAlert message={data.error} />
@@ -313,49 +426,50 @@ export function Pnl() {
         restan los gastos fijos que registres abajo para llegar a la utilidad neta del negocio.
       </Callout>
 
-      <Card>
-        <CardContent className="overflow-x-auto pt-4">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead />
-                {months.map((m) => (
-                  <TableHead key={m.month} className="text-right">
-                    {m.month.slice(0, 7)}
-                  </TableHead>
-                ))}
-                <TableHead className="text-right">Total</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {months.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={3} className="text-muted-foreground py-10 text-center">
-                    {data.loading ? 'Cargando…' : 'Sin datos en este rango.'}
-                  </TableCell>
-                </TableRow>
-              )}
-              {months.length > 0 &&
-                LINES.map((line) => (
-                  <TableRow key={line.key} className={line.bold ? 'bg-slate-50 font-semibold dark:bg-slate-800/40' : ''}>
-                    <TableCell>{line.label}</TableCell>
-                    {months.map((m) => (
-                      <TableCell
-                        key={m.month}
-                        className={`text-right ${line.bold ? tone(m.total[line.key]) : ''}`}
-                      >
-                        {fmt(line, m.total)}
-                      </TableCell>
-                    ))}
-                    <TableCell className={`text-right ${line.bold && d ? tone(d.summary[line.key]) : ''}`}>
-                      {d ? fmt(line, d.summary) : '—'}
-                    </TableCell>
-                  </TableRow>
-                ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <ErrorAlert message={unitsData.error} />
+
+      <ChartCard
+        title="Estado de resultados"
+        subtitle="Toca una fila con flecha (Ventas, Unidades, costos…) para abrirla por canal. Las filas grises son indicadores."
+        csv={tableCsv}
+        filename="estado-de-resultados-tabla"
+      >
+        {tree.length === 0 ? (
+          <EmptyChart>{data.loading ? 'Cargando…' : 'Sin datos en este rango.'}</EmptyChart>
+        ) : (
+          <ExpandableTable columns={columns} rows={tree} />
+        )}
+      </ChartCard>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <ChartCard
+          title="De ventas a ganancia neta"
+          subtitle="Todo el rango · toca una barra para ver su peso sobre las ventas"
+          csv={steps.map((s) => ({ concepto: s.label, monto: s.value }))}
+          filename="estado-de-resultados-cascada"
+        >
+          {steps.length === 0 ? <EmptyChart>{data.loading ? 'Cargando…' : 'Sin datos en este rango.'}</EmptyChart> : <Waterfall steps={steps} onStepClick={setStep} />}
+          {step && d && (
+            <p className="mt-2 text-sm">
+              <strong>{step.label}:</strong> {money(step.value)}
+              {d.summary.gross_sales ? ` · ${pctText(Math.abs(step.value) / d.summary.gross_sales)} de las ventas` : ''}
+            </p>
+          )}
+        </ChartCard>
+
+        <ChartCard
+          title="Ventas netas, ganancia y margen por mes"
+          subtitle="Barras: ventas netas y ganancia neta. Línea: margen (eje derecho)."
+          csv={monthChart.map((r) => ({ ...r }))}
+          filename="estado-de-resultados-mensual"
+        >
+          {monthChart.length === 0 ? (
+            <EmptyChart>{data.loading ? 'Cargando…' : 'Sin datos en este rango.'}</EmptyChart>
+          ) : (
+            <ComboChart data={monthChart} xKey="month" series={monthSeries} rightFormat={axisPct} />
+          )}
+        </ChartCard>
+      </div>
 
       {months.some((m) => m.expenses_by_category.length > 0) && (
         <Card>

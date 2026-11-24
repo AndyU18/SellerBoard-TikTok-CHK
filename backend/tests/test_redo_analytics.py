@@ -160,6 +160,13 @@ async def test_charges_filters_and_paging(maker):
     assert surcharges["total"] == 1 and surcharges["rows"][0]["label"] == "Correcciones del carrier"
     assert search["total"] == 3 and len(search["rows"]) == 2
     assert search["rows"][0]["created_at"] >= search["rows"][1]["created_at"]
+    # El resumen cubre todo el filtro, no solo la página devuelta (2 filas de 3).
+    assert sum(s["count"] for s in search["by_subtype"]) == 3
+    assert sum(d["amount"] for d in search["by_day"]) == pytest.approx(search["amount"])
+    assert surcharges["by_subtype"] == [
+        {"subtype": "Surcharge", "label": "Correcciones del carrier", "count": 1, "amount": 3.0, "is_cost": True}
+    ]
+    assert surcharges["by_day"] == [{"date": "2026-11-12", "amount": 3.0}]
 
 
 class FakeRedo:

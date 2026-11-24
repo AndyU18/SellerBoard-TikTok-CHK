@@ -58,6 +58,7 @@ def _check(
     label: str,
     impact: float | None = None,
     ok_detail: str = "Sin problemas.",
+    skus: list[str] | None = None,
 ) -> dict[str, Any]:
     """Arma una revisión; con `count == 0` queda en `ok` sin importar la severidad indicada."""
     healthy = count == 0
@@ -69,6 +70,7 @@ def _check(
         "impact": None if healthy else impact,
         "detail": ok_detail if healthy else detail,
         "action": {"page": page, "label": label},
+        "skus": [] if healthy else (skus or [])[:50],
     }
 
 
@@ -103,6 +105,7 @@ async def _missing_cost(session: AsyncSession, today: date) -> dict[str, Any]:
         "Cargar costos",
         impact=sum(v for _, v in missing),
         ok_detail="Todos los productos vendidos tienen costo.",
+        skus=[sku for sku, _ in missing],
     )
 
 
@@ -120,6 +123,7 @@ async def _duplicates(session: AsyncSession, today: date) -> dict[str, Any]:
         "Revisar duplicados",
         impact=sum(g["total_sales"] for g in groups),
         ok_detail="No hay SKU que parezcan duplicados.",
+        skus=[m["sku"] for g in groups for m in g["members"]],
     )
 
 
@@ -164,6 +168,7 @@ async def _nameless(session: AsyncSession) -> dict[str, Any]:
         "import",
         "Importar catálogo",
         ok_detail="Todos los productos tienen nombre.",
+        skus=sorted(skus),
     )
 
 
@@ -210,6 +215,7 @@ async def _unknown_stock_skus(session: AsyncSession) -> dict[str, Any]:
         "inventory",
         "Ver inventario",
         ok_detail="Todos los SKU del inventario son productos o alias.",
+        skus=unknown,
     )
 
 
@@ -300,6 +306,7 @@ async def _return_skus(session: AsyncSession) -> dict[str, Any]:
         "Crear alias",
         impact=sum(total for _, total in unknown),
         ok_detail="Todas las devoluciones apuntan a un producto conocido.",
+        skus=sorted(sku for sku, _ in unknown),
     )
 
 

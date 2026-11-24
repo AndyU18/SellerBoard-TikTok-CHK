@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { ComboChart } from '@/components/charts/ComboChart'
+import { ChartCard } from '@/components/charts/kit'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -93,20 +94,24 @@ export function SellerPerformance() {
               </Table>
 
               {history.length >= 2 && (
-                <div className="h-56">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={history}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="snapshot_date" />
-                      <YAxis domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} width={48} />
-                      <Tooltip formatter={(v) => pct(Number(v))} />
-                      <Legend />
-                      <Line type="monotone" dataKey="otd" name="Entregado a tiempo" stroke="#2563eb" dot={false} />
-                      <Line type="monotone" dataKey="ots" name="Enviado a tiempo" stroke="#16a34a" dot={false} />
-                      <Line type="monotone" dataKey="vtr" name="Guía válida" stroke="#f59e0b" dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
+                <ChartCard
+                  title="Historial del desempeño"
+                  subtitle="Toca la leyenda para encender o apagar cada indicador."
+                  csv={history.map((h) => ({ fecha: h.snapshot_date, entregado_a_tiempo: h.otd, enviado_a_tiempo: h.ots, guia_valida: h.vtr }))}
+                  filename={`desempeno-${a.account}`}
+                >
+                  <ComboChart
+                    data={history}
+                    xKey="snapshot_date"
+                    height={240}
+                    leftFormat={(v) => `${v}%`}
+                    series={[
+                      { key: 'otd', label: 'Entregado a tiempo', type: 'line', color: '#2563eb', format: pct },
+                      { key: 'ots', label: 'Enviado a tiempo', type: 'line', color: '#16a34a', format: pct },
+                      { key: 'vtr', label: 'Guía válida', type: 'line', color: '#f59e0b', format: pct },
+                    ]}
+                  />
+                </ChartCard>
               )}
 
               <p className="text-muted-foreground text-xs">

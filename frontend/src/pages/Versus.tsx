@@ -1,13 +1,16 @@
 import { useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
-import { FilterBar } from '@/components/FilterBar'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ErrorAlert } from '@/components/analytics/ui'
+import { ComboChart, type ComboSeries } from '@/components/charts/ComboChart'
+import { axisMoney, axisNumber, ChartCard, EmptyChart, type CsvRow } from '@/components/charts/kit'
+import { Card, CardContent } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { api, CHANNEL_LABEL, type Channel, type Filters, type GroupBy, type ProfitRow } from '@/lib/api'
-import { count, money, percent, presetRange, previousRange, tone, type Preset } from '@/lib/format'
+import { chartdata } from '@/lib/chartdata'
+import { count, money, percent, previousRange, tone } from '@/lib/format'
 import { useScope } from '@/lib/scope'
 import { useAsync } from '@/lib/useAsync'
 
@@ -44,6 +47,15 @@ const METRICS: Metric[] = [
   { key: 'roi', label: 'ROI', fmt: percent, better: 'high' },
 ]
 
+const TREND_METRICS = [
+  { key: 'gross_sales', label: 'Ventas', fmt: money },
+  { key: 'units', label: 'Unidades', fmt: count },
+  { key: 'net_profit', label: 'Utilidad neta', fmt: money },
+  { key: 'ad_spend', label: 'Publicidad', fmt: money },
+  { key: 'refund_amount', label: 'Reembolsos', fmt: money },
+] as const
+type TrendKey = (typeof TREND_METRICS)[number]['key']
+
 const A_COLOR = '#3b82f6'
 const B_COLOR = '#f59e0b'
 
@@ -63,14 +75,15 @@ const GROUP_BY: Record<Exclude<Mode, 'period'>, GroupBy> = {
 export function Versus() {
   const scope = useScope()
   const [mode, setMode] = useState<Mode>('channel')
-  const [preset, setPreset] = useState<Preset>('90d')
+  const { preset } = scope
   const [pickA, setPickA] = useState('')
   const [pickB, setPickB] = useState('')
   const [pickSku, setPickSku] = useState('')
+  const [trendKey, setTrendKey] = useState<TrendKey>('gross_sales')
 
   const filters = useMemo<Filters>(
-    () => ({ ...presetRange(preset), channel: scope.channelParam, account: scope.account }),
-    [preset, scope.channelParam, scope.account],
+    () => ({ ...scope.range, channel: scope.channelParam, account: scope.account }),
+    [scope.range, scope.channelParam, scope.account],
   )
   const prevRange = previousRange(preset)
 
@@ -93,6 +106,24 @@ export function Versus() {
     () =>
       mode === 'period' && prevRange
         ? api.profit('channel', { ...prevRange, channel: filters.channel, account: filters.account })
+        : Promise.resolve(null),
+    [mode, preset, filters.channel, filters.account],
+  )
+
+  // Series en el tiempo de las dos entidades (para superponer líneas). 30 días = por día; el resto, por mes.
+  const interval = preset === '30d' ? 'day' : 'month'
+  const trendEntities = useAsync(
+    () => (mode === 'period' ? Promise.resolve(null) : chartdata.versusSeries(GROUP_BY[mode], interval, entityFilters)),
+    [mode, interval, entityFilters],
+  )
+  const trendCur = useAsync(
+    () => (mode === 'period' ? api.timeseries('day', filters) : Promise.resolve(null)),
+    [mode, filters],
+  )
+  const trendPrev = useAsync(
+    () =>
+      mode === 'period' && prevRange
+        ? api.timeseries('day', { ...prevRange, channel: filters.channel, account: filters.account })
         : Promise.resolve(null),
     [mode, preset, filters.channel, filters.account],
   )
@@ -150,6 +181,44 @@ export function Versus() {
 
   const loading = entities.loading || periodA.loading || periodB.loading
   const error = entities.error ?? periodA.error ?? periodB.error
+  const trendError = trendEntities.error ?? trendCur.error ?? trendPrev.error
+  const trendLoading = trendEntities.loading || trendCur.loading || trendPrev.loading
+  const trendMetric = TREND_METRICS.find((m) => m.key === trendKey) ?? TREND_METRICS[0]
+
+  type TrendRow = { x: string; A: number | null; B: number | null; diff: number | null }
+  const trend: TrendRow[] = (() => {
+    const k = trendKey
+    const withDiff = (x: string, A: number | null, B: number | null): TrendRow => ({ x, A, B, diff: A != null && B != null ? A - B : null })
+    if (mode === 'period') {
+      // Se alinean por día del período (día 1 con día 1) para ver cómo va el actual contra el anterior.
+      const byDay = (rows: ProfitRow[] | undefined, start: string | undefined) => {
+        const out = new Map<number, number>()
+        if (!start) return out
+        const t0 = new Date(`${start}T00:00:00`).getTime()
+        for (const r of rows ?? []) {
+          if (!r.period) continue
+          const i = Math.round((new Date(`${r.period.slice(0, 10)}T00:00:00`).getTime() - t0) / 86_400_000)
+          out.set(i, (out.get(i) ?? 0) + r[k])
+        }
+        return out
+      }
+      const cur = byDay(trendCur.data?.rows, filters.start)
+      const prev = byDay(trendPrev.data?.rows, prevRange?.start)
+      const n = Math.max(-1, ...cur.keys(), ...prev.keys()) + 1
+      return Array.from({ length: n }, (_, i) => withDiff(`Día ${i + 1}`, cur.get(i) ?? 0, prev.get(i) ?? 0))
+    }
+    const all = trendEntities.data?.rows ?? []
+    const scoped = mode === 'sku_channels' ? all.filter((r) => r.sku === sku) : all
+    const periods = [...new Set(scoped.map((r) => r.period ?? ''))].sort()
+    const valueAt = (id: string, p: string) => scoped.filter((r) => r.period === p && idOf(r) === id).reduce((s, r) => s + r[k], 0)
+    return periods.map((p) => withDiff(p.slice(interval === 'day' ? 5 : 0, interval === 'day' ? 10 : 7), valueAt(a, p), valueAt(b, p)))
+  })()
+  const trendSeries: ComboSeries[] = [
+    { key: 'A', label: nameA, type: 'line', color: A_COLOR, format: trendMetric.fmt },
+    { key: 'B', label: nameB, type: 'line', color: B_COLOR, format: trendMetric.fmt },
+    { key: 'diff', label: 'Diferencia (A − B)', type: 'bar', color: '#94a3b8', format: trendMetric.fmt },
+  ]
+  const trendCsv: CsvRow[] = trend.map((r) => ({ periodo: r.x, [nameA]: r.A, [nameB]: r.B, diferencia: r.diff }))
   const ready = rowA && rowB
   const chartData = [
     { name: 'Ventas', key: 'gross_sales' as const },
@@ -161,10 +230,7 @@ export function Versus() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Comparativa head-to-head</h1>
-        <FilterBar preset={preset} onPreset={setPreset} />
-      </div>
+      <h1 className="text-2xl font-semibold">Comparativa head-to-head</h1>
 
       <div className="flex flex-wrap items-center gap-4">
         <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)}>
@@ -226,11 +292,7 @@ export function Versus() {
         )}
       </div>
 
-      {error && (
-        <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-          No se pudo cargar: {error}
-        </div>
-      )}
+      <ErrorAlert message={error} />
       {mode === 'period' && !prevRange && (
         <p className="text-muted-foreground text-sm">
           Elige un periodo distinto de “Todo” para compararlo con el anterior de la misma duración.
@@ -258,6 +320,7 @@ export function Versus() {
       )}
 
       {ready ? (
+        <>
         <div className="grid gap-4 xl:grid-cols-[1fr_22rem]">
           <Card>
             <CardContent className="overflow-x-auto pt-4">
@@ -303,25 +366,54 @@ export function Versus() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Ventas y utilidad</CardTitle>
-            </CardHeader>
-            <CardContent className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="name" />
-                  <YAxis tickFormatter={(v: number) => `$${v.toLocaleString('en-US')}`} width={72} />
-                  <Tooltip formatter={(v) => money(Number(v))} />
-                  <Legend />
-                  <Bar dataKey="A" name={nameA} fill={A_COLOR} />
-                  <Bar dataKey="B" name={nameB} fill={B_COLOR} />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
+          <ChartCard
+            title="Ventas y utilidad"
+            csv={chartData.map((r) => ({ concepto: r.name, [nameA]: r.A, [nameB]: r.B }))}
+            filename="versus-ventas-utilidad"
+          >
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                <YAxis tickFormatter={axisMoney} width={56} tick={{ fontSize: 11 }} />
+                <Tooltip formatter={(v) => money(Number(v))} />
+                <Legend />
+                <Bar dataKey="A" name={nameA} fill={A_COLOR} />
+                <Bar dataKey="B" name={nameB} fill={B_COLOR} />
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
         </div>
+
+        <ChartCard
+          title={mode === 'period' ? 'Período actual vs anterior, día por día' : 'Evolución de las dos opciones'}
+          subtitle="Líneas: A y B. Barras: diferencia (A − B). Toca la leyenda para ocultar una serie."
+          csv={trendCsv}
+          filename="versus-evolucion"
+          actions={
+            <div className="flex flex-wrap gap-1" role="group" aria-label="Métrica">
+              {TREND_METRICS.map((m) => (
+                <button
+                  key={m.key}
+                  type="button"
+                  aria-pressed={trendKey === m.key}
+                  onClick={() => setTrendKey(m.key)}
+                  className={`rounded border px-2 py-1 text-xs ${trendKey === m.key ? 'bg-slate-900 text-white' : 'hover:bg-slate-100'}`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          }
+        >
+          <ErrorAlert message={trendError} />
+          {trend.length === 0 ? (
+            !trendError && <EmptyChart>{trendLoading ? 'Cargando…' : 'Sin datos para este filtro.'}</EmptyChart>
+          ) : (
+            <ComboChart data={trend} xKey="x" series={trendSeries} leftFormat={trendKey === 'units' ? axisNumber : axisMoney} />
+          )}
+        </ChartCard>
+        </>
       ) : (
         !error && <p className="text-muted-foreground text-sm">{loading ? 'Cargando…' : 'Sin datos para comparar.'}</p>
       )}

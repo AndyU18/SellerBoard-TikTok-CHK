@@ -1,6 +1,9 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { CHANNEL_LABEL, CHANNELS, type Channel } from '@/lib/api'
+import { PRESETS, type Preset } from '@/lib/format'
 import { useScope, type ChannelFilter } from '@/lib/scope'
+
+const PERIOD_ITEMS = PRESETS.map((p) => ({ value: p.value, label: p.label }))
 
 const CHANNEL_ITEMS = [
   { value: 'all', label: 'Todos los canales' },
@@ -50,6 +53,19 @@ export function ScopeBar() {
           {storeItems.map((s) => (
             <SelectItem key={s.value} value={s.value}>
               {s.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <span className="text-muted-foreground ml-2 text-xs font-medium uppercase">Período</span>
+      <Select items={PERIOD_ITEMS} value={scope.preset} onValueChange={(v) => v && scope.setPreset(v as Preset)}>
+        <SelectTrigger className="w-44" aria-label="Período">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {PERIOD_ITEMS.map((p) => (
+            <SelectItem key={p.value} value={p.value}>
+              {p.label}
             </SelectItem>
           ))}
         </SelectContent>

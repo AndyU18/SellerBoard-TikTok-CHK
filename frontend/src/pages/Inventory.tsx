@@ -1,6 +1,10 @@
 import { useMemo, useState } from 'react'
 
 import { ChannelOnlyNotice } from '@/components/ScopeBar'
+import { ErrorAlert } from '@/components/analytics/ui'
+import { ChartCard } from '@/components/charts/kit'
+import { DepletionChart } from '@/components/operacion/DepletionChart'
+import { AsyncBody, ColorDonut, HBars, SEMAFORO, type HBarItem } from '@/components/operacion/shared'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -8,6 +12,16 @@ import { api, type Filters, type StockStatus } from '@/lib/api'
 import { count, money } from '@/lib/format'
 import { useScope } from '@/lib/scope'
 import { useAsync } from '@/lib/useAsync'
+
+const STATUS_COLOR: Record<StockStatus, string> = {
+  ok: '#10b981',
+  low: '#f59e0b',
+  out_of_stock: '#ef4444',
+  unpublished: '#8b5cf6',
+  no_sales: '#94a3b8',
+  no_stock: '#cbd5e1',
+}
+const rowKey = (r: { account: string; sku: string }) => `${r.account}|${r.sku}`
 
 const STATUS: Record<StockStatus, { label: string; badge: string }> = {
   out_of_stock: { label: 'Agotado y vendiéndose', badge: 'bg-red-100 text-red-800' },
@@ -36,6 +50,7 @@ export function Inventory() {
   const scope = useScope()
   const [search, setSearch] = useState('')
   const [only, setOnly] = useState<StockStatus | 'all'>('all')
+  const [picked, setPicked] = useState<string | null>(null)
   const filters = useMemo<Filters>(
     () => ({ channel: scope.channelParam, account: scope.account }) as Filters,
     [scope.channelParam, scope.account],
@@ -50,16 +65,53 @@ export function Inventory() {
     )
   }, [data.data, search, only])
 
+  const low = data.data?.low_cover_days ?? 14
+  const all = useMemo(() => data.data?.rows ?? [], [data.data])
+  // Días de inventario por SKU: los que menos duran primero; la barra se corta en 120 días para que se lea.
+  const coverRows = useMemo(
+    () =>
+      all
+        .filter((r) => r.days_of_cover != null && r.units_sold > 0)
+        .sort((a, b) => (a.days_of_cover ?? 0) - (b.days_of_cover ?? 0))
+        .slice(0, 20),
+    [all],
+  )
+  const coverBars: HBarItem[] = coverRows.map((r) => {
+    const d = r.days_of_cover ?? 0
+    return {
+      id: rowKey(r),
+      label: r.product_name ?? r.sku,
+      value: Math.min(d, 120),
+      color: d < low ? SEMAFORO.red : d < low * 2 ? SEMAFORO.amber : SEMAFORO.green,
+      extra: `${d.toFixed(0)} días · ${r.sku}`,
+    }
+  })
+  const selectedRow = all.find((r) => rowKey(r) === picked) ?? coverRows[0]
+  const statusSlices = (Object.keys(STATUS) as StockStatus[]).map((k) => ({
+    id: k,
+    label: STATUS[k].label,
+    value: sm?.[k] ?? 0,
+    color: STATUS_COLOR[k],
+  }))
+  const valueSlices = (Object.keys(STATUS) as StockStatus[]).map((k) => ({
+    id: k,
+    label: STATUS[k].label,
+    value: all.filter((r) => r.status === k).reduce((a, r) => a + (r.avail_to_sell ?? 0) * (r.price ?? 0), 0),
+    color: STATUS_COLOR[k],
+  }))
+  const pick = (id: string) => {
+    const next = picked === id ? null : id
+    setPicked(next)
+    const row = all.find((r) => rowKey(r) === next)
+    setSearch(row ? row.sku : '')
+  }
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">Inventario y publicaciones</h1>
       <ChannelOnlyNotice channels={['walmart']} what="El inventario" />
 
-      {data.error && (
-        <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-          No se pudo cargar: {data.error}
-        </div>
-      )}
+      <ErrorAlert message={data.error} />
 
       {(sm?.out_of_stock ?? 0) > 0 && (
         <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
@@ -92,6 +144,65 @@ export function Inventory() {
           value={money(sm?.stock_retail_value ?? 0)}
           hint={`${count(sm?.units_in_stock ?? 0)} unidades · ${count(sm?.no_sales ?? 0)} productos con stock sin ventas`}
         />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <ChartCard
+          title="Días de inventario por SKU"
+          subtitle="Los que menos duran, primero. Clic en una barra para ver su proyección y filtrar la tabla."
+          csv={coverRows.map((r) => ({ sku: r.sku, producto: r.product_name, tienda: r.account, disponible: r.avail_to_sell, dias_de_inventario: r.days_of_cover, estado: STATUS[r.status].label }))}
+          filename="dias-de-inventario"
+        >
+          <AsyncBody state={data} empty={coverBars.length === 0}>
+            <HBars
+              data={coverBars}
+              format={(v) => `${v.toFixed(0)} d`}
+              valueLabel="Días de inventario"
+              selected={selectedRow ? rowKey(selectedRow) : null}
+              onBarClick={(b) => pick(b.id)}
+              legend={[
+                { color: SEMAFORO.red, label: `Menos de ${low} días` },
+                { color: SEMAFORO.amber, label: `${low} a ${low * 2} días` },
+                { color: SEMAFORO.green, label: `Más de ${low * 2} días` },
+              ]}
+            />
+          </AsyncBody>
+        </ChartCard>
+        {selectedRow ? (
+          <DepletionChart
+            name={selectedRow.product_name ?? selectedRow.sku}
+            sku={selectedRow.sku}
+            stock={selectedRow.avail_to_sell ?? 0}
+            daily={selectedRow.daily_units}
+            reorderPoint={selectedRow.daily_units * low}
+          />
+        ) : (
+          <ChartCard title="Proyección de agotamiento" filename="proyeccion">
+            <AsyncBody state={data} empty>
+              {null}
+            </AsyncBody>
+          </ChartCard>
+        )}
+        <ChartCard
+          title="Productos por estado"
+          subtitle="Clic en una porción para filtrar la tabla."
+          csv={statusSlices.map((s) => ({ estado: s.label, productos: s.value }))}
+          filename="productos-por-estado"
+        >
+          <AsyncBody state={data} empty={statusSlices.every((s) => s.value === 0)}>
+            <ColorDonut slices={statusSlices} format={count} centerLabel="productos" selected={only === 'all' ? null : only} onSliceClick={(s) => setOnly(only === s.id ? 'all' : (s.id as StockStatus))} />
+          </AsyncBody>
+        </ChartCard>
+        <ChartCard
+          title="Capital inmovilizado por estado"
+          subtitle="Existencias a precio de venta; el rojo y el gris son dinero parado o en riesgo."
+          csv={valueSlices.map((s) => ({ estado: s.label, valor_a_precio_de_venta: Math.round(s.value * 100) / 100 }))}
+          filename="capital-por-estado"
+        >
+          <AsyncBody state={data} empty={valueSlices.every((s) => s.value === 0)}>
+            <ColorDonut slices={valueSlices} format={money} centerLabel="a precio de venta" selected={only === 'all' ? null : only} onSliceClick={(s) => setOnly(only === s.id ? 'all' : (s.id as StockStatus))} />
+          </AsyncBody>
+        </ChartCard>
       </div>
 
       <div className="flex flex-wrap items-end gap-4">

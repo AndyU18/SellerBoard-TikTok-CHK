@@ -1,13 +1,18 @@
 import { useMemo, useState } from 'react'
 
 import { ChannelOnlyNotice } from '@/components/ScopeBar'
-import { FilterBar } from '@/components/FilterBar'
+import { ErrorAlert } from '@/components/analytics/ui'
 import { ReturnsCost } from '@/components/analytics/ReturnsCost'
+import { ComboChart } from '@/components/charts/ComboChart'
+import { HeatTable } from '@/components/charts/HeatTable'
+import { axisNumber, ChartCard, COLOR } from '@/components/charts/kit'
+import { AsyncBody, HBars, periodLabel } from '@/components/operacion/shared'
+import { chartdata } from '@/lib/chartdataOperacion'
 import { useScope } from '@/lib/scope'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { api, type Filters } from '@/lib/api'
-import { count, money, percent, presetRange, type Preset } from '@/lib/format'
+import { count, money, percent } from '@/lib/format'
 import { useAsync } from '@/lib/useAsync'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -36,32 +41,42 @@ function Kpi({ title, value, hint, className = '' }: { title: string; value: str
 }
 
 export function Returns() {
-  const [preset, setPreset] = useState<Preset>('90d')
   const scope = useScope()
+  const { start, end } = scope.range
   const filters = useMemo<Filters>(
-    () => ({ ...presetRange(preset), channel: scope.channelParam, account: scope.account }),
-    [preset, scope.channelParam, scope.account],
+    () => ({ start, end, channel: scope.channelParam, account: scope.account }),
+    [start, end, scope.channelParam, scope.account],
   )
+  const [period, setPeriod] = useState<string | null>(null)
   const data = useAsync(() => api.returns(filters), [filters])
+  const trend = useAsync(() => chartdata.returnsTrend(filters), [filters])
+  const matrix = useAsync(() => chartdata.returnsMatrix(filters), [filters])
+  const gran = trend.data?.granularity ?? 'month'
+  const trendRows = useMemo(() => trend.data?.rows ?? [], [trend.data])
+  const inPeriod = (day: string) => {
+    if (!period) return true
+    if (gran === 'month') return day.startsWith(period)
+    const from = Date.parse(`${period}T00:00:00`)
+    const t = Date.parse(`${day}T00:00:00`)
+    return t >= from && t < from + 7 * 86_400_000
+  }
   const sm = data.data?.summary
   const reasons = data.data?.by_reason ?? []
   const returnReasons = reasons.filter((r) => r.kind === 'return')
   const cancelReasons = reasons.filter((r) => r.kind === 'cancellation')
   const products = data.data?.by_product ?? []
+  const reasonBars = (rows: typeof reasons) =>
+    rows.slice(0, 12).map((r) => ({ id: r.reason, label: r.reason, value: r.cases, extra: `${money(r.refund_total)} reembolsados` }))
+  const recent = (data.data?.recent ?? []).filter((c) => inPeriod(c.case_date))
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Devoluciones y cancelaciones (RMA)</h1>
-        <FilterBar preset={preset} onPreset={setPreset} />
       </div>
       <ChannelOnlyNotice channels={['tiktok_shop', 'walmart']} what="Devoluciones y cancelaciones" />
 
-      {data.error && (
-        <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-          No se pudo cargar: {data.error}
-        </div>
-      )}
+      <ErrorAlert message={data.error} />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Kpi
@@ -87,37 +102,82 @@ export function Returns() {
         />
       </div>
 
+      <ChartCard
+        title={`Tendencia de devoluciones (por ${gran === 'week' ? 'semana' : 'mes'})`}
+        subtitle="Devoluciones en barras y tasa de devolución en línea (eje derecho). Clic en un punto para filtrar los casos recientes."
+        csv={trendRows.map((r) => ({
+          periodo: r.period,
+          devoluciones: r.returns,
+          unidades_devueltas: r.returned_units,
+          unidades_vendidas: r.units_sold,
+          tasa: r.return_rate,
+          reembolsado: r.refund,
+        }))}
+        filename="tendencia-devoluciones"
+        actions={
+          period && (
+            <button type="button" onClick={() => setPeriod(null)} className="text-muted-foreground hover:text-foreground rounded px-2 text-xs hover:bg-slate-100">
+              Quitar filtro ({periodLabel(period, gran)})
+            </button>
+          )
+        }
+      >
+        <AsyncBody state={trend} empty={trendRows.length === 0}>
+          <ComboChart
+            data={trendRows}
+            xKey="period"
+            xFormat={(v) => periodLabel(String(v), gran)}
+            leftFormat={axisNumber}
+            rightFormat={(v) => `${(v * 100).toFixed(1)}%`}
+            series={[
+              { key: 'returns', label: 'Devoluciones', type: 'bar', color: COLOR.blue, format: count },
+              { key: 'returned_units', label: 'Unidades devueltas', type: 'bar', color: '#93c5fd', format: count },
+              { key: 'return_rate', label: 'Tasa de devolución', type: 'line', axis: 'right', color: COLOR.bad, format: (v) => percent(v) },
+            ]}
+            onPointClick={(row) => setPeriod((p) => (p === row.period ? null : String(row.period)))}
+          />
+        </AsyncBody>
+      </ChartCard>
+
       <div className="grid gap-4 xl:grid-cols-2">
         {[
           { title: 'Motivos de devolución', rows: returnReasons },
           { title: 'Motivos de cancelación', rows: cancelReasons },
         ].map((block) => (
-          <Card key={block.title}>
-            <CardHeader>
-              <CardTitle>{block.title}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {block.rows.length === 0 ? (
-                <p className="text-muted-foreground text-sm">{data.loading ? 'Cargando…' : 'Sin casos en el periodo.'}</p>
-              ) : (
-                <ul className="divide-y text-sm">
-                  {block.rows.map((r) => (
-                    <li key={r.reason} className="flex items-center justify-between gap-3 py-1.5">
-                      <span className="min-w-0 truncate" title={r.reason}>
-                        {r.reason}
-                      </span>
-                      <span className="shrink-0">
-                        <span className="font-medium">{count(r.cases)}</span>
-                        <span className="text-muted-foreground ml-2 text-xs">{money(r.refund_total)}</span>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
+          <ChartCard
+            key={block.title}
+            title={block.title}
+            subtitle="Casos por motivo; al pasar el cursor se ve lo reembolsado."
+            csv={block.rows.map((r) => ({ motivo: r.reason, casos: r.cases, reembolsado: r.refund_total }))}
+            filename={block.title}
+          >
+            <AsyncBody state={data} empty={block.rows.length === 0}>
+              <HBars data={reasonBars(block.rows)} format={count} valueLabel="Casos" />
+            </AsyncBody>
+          </ChartCard>
         ))}
       </div>
+
+      <ChartCard
+        title="Devoluciones por producto y período"
+        subtitle="Unidades devueltas de los productos con más devoluciones; el color va de rojo (poco) a verde (mucho) dentro de cada fila."
+        csv={(matrix.data?.rows ?? []).map((r) => ({
+          sku: r.sku,
+          producto: r.product_name,
+          total: r.total,
+          ...Object.fromEntries((matrix.data?.periods ?? []).map((p, i) => [p, r.values[i]])),
+        }))}
+        filename="devoluciones-producto-periodo"
+      >
+        <AsyncBody state={matrix} empty={(matrix.data?.rows.length ?? 0) === 0}>
+          <HeatTable
+            columns={(matrix.data?.periods ?? []).map((p) => periodLabel(p, matrix.data?.granularity ?? 'month'))}
+            rows={(matrix.data?.rows ?? []).map((r) => ({ id: r.sku, label: r.product_name ?? r.sku, sublabel: r.sku, values: r.values }))}
+            format={count}
+            showChange={false}
+          />
+        </AsyncBody>
+      </ChartCard>
 
       <Card>
         <CardHeader>
@@ -169,7 +229,7 @@ export function Returns() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Casos recientes</CardTitle>
+          <CardTitle>Casos recientes{period ? ` · ${periodLabel(period, gran)}` : ''}</CardTitle>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <Table>
@@ -185,7 +245,7 @@ export function Returns() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(data.data?.recent ?? []).map((c) => (
+              {recent.map((c) => (
                 <TableRow key={c.external_id}>
                   <TableCell>{c.case_date}</TableCell>
                   <TableCell>{c.kind === 'return' ? 'Devolución' : 'Cancelación'}</TableCell>

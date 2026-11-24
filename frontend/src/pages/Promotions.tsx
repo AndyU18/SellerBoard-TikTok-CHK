@@ -1,13 +1,12 @@
 import { useMemo, useState } from 'react'
 
 import { ChannelBadge } from '@/components/ChannelBadge'
-import { FilterBar } from '@/components/FilterBar'
 import { PromoEffect } from '@/components/analytics/PromoEffect'
 import { useScope } from '@/lib/scope'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { api, type Filters } from '@/lib/api'
-import { count, money, percent, presetRange, tone, type Preset } from '@/lib/format'
+import { count, money, percent, tone } from '@/lib/format'
 import { useAsync } from '@/lib/useAsync'
 
 function Kpi({ title, value, hint }: { title: string; value: string; hint?: string }) {
@@ -25,13 +24,12 @@ function Kpi({ title, value, hint }: { title: string; value: string; hint?: stri
 }
 
 export function Promotions() {
-  const [preset, setPreset] = useState<Preset>('90d')
   const scope = useScope()
   const [onlyAlerts, setOnlyAlerts] = useState(false)
 
   const filters = useMemo<Filters>(
-    () => ({ ...presetRange(preset), channel: scope.channelParam, account: scope.account }),
-    [preset, scope.channelParam, scope.account],
+    () => ({ ...scope.range, channel: scope.channelParam, account: scope.account }),
+    [scope.range, scope.channelParam, scope.account],
   )
   const data = useAsync(() => api.promotions(filters), [filters])
 
@@ -45,7 +43,6 @@ export function Promotions() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Auditoría de promociones y subsidios</h1>
-        <FilterBar preset={preset} onPreset={setPreset} />
       </div>
 
       {data.error && (

@@ -5,9 +5,14 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.ads_api import router as ads_router
 from app.analytics_api import router as analytics_router
 from app.api import router
 from app.assistant_api import router as assistant_router
+from app.chartdata_dinero import router as chartdata_dinero_router
+from app.chartdata_operacion import router as chartdata_operacion_router
+from app.chartdata_precios import router as chartdata_precios_router
+from app.chartdata_resumen import router as chartdata_resumen_router
 from app.config import settings
 from app.db import SessionLocal, init_db
 from app.export_api import router as export_router
@@ -50,6 +55,11 @@ app.add_middleware(
 app.include_router(router)
 app.include_router(analytics_router)
 app.include_router(redo_router)
+app.include_router(ads_router)
+app.include_router(chartdata_dinero_router)
+app.include_router(chartdata_resumen_router)
+app.include_router(chartdata_precios_router)
+app.include_router(chartdata_operacion_router)
 app.include_router(assistant_router)
 app.include_router(notifications_router)
 app.include_router(sku_router)

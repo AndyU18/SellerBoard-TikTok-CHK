@@ -1,30 +1,17 @@
 import { useMemo, useState } from 'react'
-import {
-  Bar,
-  CartesianGrid,
-  ComposedChart,
-  Legend,
-  Line,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ChannelOnlyNotice } from '@/components/ScopeBar'
-import { api, type Filters } from '@/lib/api'
+import { ErrorAlert, Hint } from '@/components/analytics/ui'
+import { ComboChart } from '@/components/charts/ComboChart'
+import { FunnelBars, type FunnelStage } from '@/components/charts/FunnelBars'
+import { axisNumber, axisPct, ChartCard, EmptyChart } from '@/components/charts/kit'
+import { api, type Filters, type FunnelResponse } from '@/lib/api'
+import { chartdataDinero, shortDate } from '@/lib/chartdata_dinero'
 import { useScope } from '@/lib/scope'
-import { count, money, percent, presetRange, type Preset } from '@/lib/format'
+import { count, money, percent, previousRange } from '@/lib/format'
 import { useAsync } from '@/lib/useAsync'
-
-// El tráfico de TikTok solo se guarda hasta 90 días atrás.
-const RANGES: { value: Preset; label: string }[] = [
-  { value: '30d', label: 'Últimos 30 días' },
-  { value: '90d', label: 'Últimos 90 días' },
-]
 
 const SOURCE_LABEL: Record<string, string> = { VIDEO: 'Videos', LIVE: 'LIVE', PRODUCT_CARD: 'Tarjeta de producto' }
 
@@ -42,50 +29,76 @@ function Kpi({ title, value, hint }: { title: string; value: string; hint?: stri
   )
 }
 
+type Delivery = { orders: number; shipped: number; delivered: number } | null
+
+/** Etapas del embudo con los datos que existen: tráfico de TikTok (impresiones, vistas, órdenes) y entregas del envío. */
+function stagesOf(f: FunnelResponse | null, delivery: Delivery): FunnelStage[] {
+  if (!f) return []
+  const t = f.totals
+  const out: FunnelStage[] = [
+    { id: 'impressions', label: 'Impresiones de producto', value: t.impressions },
+    { id: 'page_views', label: 'Vistas de la página del producto', value: t.page_views },
+    { id: 'orders', label: 'Órdenes', value: t.orders },
+  ]
+  if (delivery && delivery.delivered > 0) out.push({ id: 'delivered', label: 'Entregadas', value: delivery.delivered })
+  return out
+}
+
 export function Funnel() {
-  const [preset, setPreset] = useState<Preset>('30d')
   const scope = useScope()
+  const { start, end } = scope.range
   const filters = useMemo<Filters>(
-    () => ({ ...presetRange(preset), channel: scope.channelParam, account: scope.account }),
-    [preset, scope.channelParam, scope.account],
+    () => ({ start, end, channel: scope.channelParam, account: scope.account }),
+    [start, end, scope.channelParam, scope.account],
+  )
+  const prev = useMemo(() => previousRange(scope.preset), [scope.preset])
+  const prevFilters = useMemo<Filters | null>(
+    () => (prev ? { start: prev.start, end: prev.end, channel: scope.channelParam, account: scope.account } : null),
+    [prev, scope.channelParam, scope.account],
   )
   const data = useAsync(() => api.funnel(filters), [filters])
+  const before = useAsync(() => (prevFilters ? api.funnel(prevFilters) : Promise.resolve(null)), [prevFilters])
+  const delivery = useAsync(() => chartdataDinero.funnelDelivery(filters), [filters])
+  const deliveryPrev = useAsync(() => (prevFilters ? chartdataDinero.funnelDelivery(prevFilters) : Promise.resolve(null)), [prevFilters])
+  const [picked, setPicked] = useState<FunnelStage | null>(null)
 
   const t = data.data?.totals
-  const max = t?.impressions || 1
-  const steps = t
-    ? [
-        { label: 'Impresiones de producto', value: t.impressions, note: '' },
-        { label: 'Vistas de la página del producto', value: t.page_views, note: `CTR ${percent(t.ctr)}` },
-        { label: 'Compradores', value: t.buyers, note: `conversión ${percent(t.conversion)}` },
-      ]
-    : []
+  const stages = useMemo(() => stagesOf(data.data, delivery.data), [data.data, delivery.data])
+  const prevStages = useMemo(() => stagesOf(before.data, deliveryPrev.data), [before.data, deliveryPrev.data])
+  const hasPrev = prevStages.length > 0 && prevStages[0].value > 0
+
+  // Comparación: cada etapa y la tasa de paso desde la etapa anterior, contra el período previo.
+  const compare = stages.map((s, i) => {
+    const p = prevStages.find((x) => x.id === s.id)
+    const rate = i > 0 && stages[i - 1].value > 0 ? s.value / stages[i - 1].value : null
+    const pi = p ? prevStages.findIndex((x) => x.id === s.id) : -1
+    const prevRate = pi > 0 && prevStages[pi - 1].value > 0 && p ? p.value / prevStages[pi - 1].value : null
+    return { ...s, prev: p?.value ?? null, rate, prevRate }
+  })
+  const rateChart = compare
+    .filter((c) => c.rate != null)
+    .map((c) => ({ step: `→ ${c.label}`, actual: c.rate, anterior: c.prevRate }))
+
+  const csv = compare.map((c) => ({
+    etapa: c.label,
+    actual: c.value,
+    periodo_anterior: c.prev,
+    tasa_de_paso: c.rate,
+    tasa_de_paso_anterior: c.prevRate,
+  }))
+  const daily = useMemo(() => (data.data?.daily ?? []).map((d) => ({ ...d, conv: d.conversion ?? 0 })), [data.data])
+
+  const sourceValue = (s: FunnelResponse['by_source'][number], id: string) =>
+    id === 'impressions' ? s.impressions : id === 'page_views' ? s.page_views : id === 'orders' ? s.orders : 0
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Embudo de tráfico y conversión</h1>
-        <Select items={RANGES} value={preset} onValueChange={(v) => v && setPreset(v as Preset)}>
-          <SelectTrigger className="w-44" aria-label="Periodo">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {RANGES.map((p) => (
-              <SelectItem key={p.value} value={p.value}>
-                {p.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <h1 className="text-2xl font-semibold">Embudo de tráfico y conversión</h1>
 
       <ChannelOnlyNotice channels={['tiktok_shop']} what="El embudo de tráfico" />
 
-      {data.error && (
-        <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-          No se pudo cargar: {data.error}
-        </div>
-      )}
+      <ErrorAlert message={data.error} />
+      <ErrorAlert message={delivery.error} />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Kpi title="Tasa de clics (CTR)" value={percent(t?.ctr)} hint="vistas de producto / impresiones" />
@@ -94,41 +107,93 @@ export function Funnel() {
         <Kpi title="Ticket promedio" value={money(t?.aov)} hint="GMV / órdenes" />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Embudo</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {steps.length === 0 && (
-            <p className="text-muted-foreground text-sm">
-              {data.loading ? 'Cargando…' : 'Sin tráfico. Sincroniza TikTok Shop desde Importar.'}
-            </p>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <ChartCard
+          title="Embudo"
+          subtitle="Entre etapas se muestra el porcentaje que pasa a la siguiente. Clic en una etapa para ver su reparto por origen."
+          csv={csv}
+          filename="embudo"
+        >
+          {stages.length === 0 ? (
+            <EmptyChart>{data.loading ? 'Cargando…' : 'Sin tráfico. Sincroniza TikTok Shop desde Importar.'}</EmptyChart>
+          ) : (
+            <>
+              <FunnelBars stages={stages} onStageClick={setPicked} />
+              {picked && picked.id !== 'delivered' && (
+                <div className="mt-3 rounded-md border p-3 text-sm">
+                  <div className="mb-1 flex items-center justify-between font-medium">
+                    <span>{picked.label} por origen</span>
+                    <button type="button" onClick={() => setPicked(null)} className="text-muted-foreground text-xs hover:underline">
+                      Cerrar
+                    </button>
+                  </div>
+                  <ul className="divide-y">
+                    {(data.data?.by_source ?? []).map((s) => (
+                      <li key={s.source} className="flex justify-between py-1">
+                        <span>{SOURCE_LABEL[s.source] ?? s.source}</span>
+                        <span className="tabular-nums">{count(sourceValue(s, picked.id))}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <p className="text-muted-foreground mt-2 text-xs">
+                Carrito no aparece: TikTok no entrega el paso entre la vista del producto y la orden. «Entregadas» sale de los
+                envíos registrados en tu tienda, que pueden no coincidir con todas las órdenes del tráfico.
+              </p>
+            </>
           )}
-          {steps.map((s) => (
-            <div key={s.label}>
-              <div className="mb-1 flex justify-between text-sm">
-                <span>{s.label}</span>
-                <span>
-                  <span className="font-medium">{count(s.value)}</span>
-                  {s.note && <span className="text-muted-foreground ml-2 text-xs">{s.note}</span>}
-                </span>
-              </div>
-              <div className="bg-muted h-6 rounded">
-                {/* Escala raíz cuadrada: con una escala lineal los compradores serían una línea invisible. */}
-                <div
-                  className="h-6 rounded bg-blue-500"
-                  style={{ width: `${Math.max(2, Math.sqrt(s.value / max) * 100)}%` }}
-                />
-              </div>
-            </div>
-          ))}
-          {steps.length > 0 && (
-            <p className="text-muted-foreground text-xs">
-              Las barras usan escala de raíz cuadrada para que se vean los tres pasos; los números son exactos.
-            </p>
+        </ChartCard>
+
+        <ChartCard
+          title="Contra el período anterior"
+          subtitle={hasPrev ? 'Tasa de paso entre etapas: este período vs el anterior de la misma duración.' : 'Elige 30 o 90 días arriba para comparar; el tráfico de TikTok solo se guarda 90 días.'}
+          csv={csv}
+          filename="embudo-comparacion"
+        >
+          {!hasPrev ? (
+            <EmptyChart>{before.loading ? 'Cargando…' : 'No hay un período anterior con datos para comparar.'}</EmptyChart>
+          ) : (
+            <>
+              <ComboChart
+                data={rateChart}
+                xKey="step"
+                height={220}
+                leftFormat={axisPct}
+                series={[
+                  { key: 'actual', label: 'Este período', type: 'bar', color: '#3b82f6', format: (v) => percent(v) },
+                  { key: 'anterior', label: 'Período anterior', type: 'bar', color: '#94a3b8', format: (v) => percent(v) },
+                ]}
+              />
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Etapa</TableHead>
+                    <TableHead className="text-right">Actual</TableHead>
+                    <TableHead className="text-right">Anterior</TableHead>
+                    <TableHead className="text-right">Cambio</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {compare.map((c) => {
+                    const ch = c.prev ? (c.value - c.prev) / c.prev : null
+                    return (
+                      <TableRow key={c.id}>
+                        <TableCell>{c.label}</TableCell>
+                        <TableCell className="text-right">{count(c.value)}</TableCell>
+                        <TableCell className="text-right">{count(c.prev)}</TableCell>
+                        <TableCell className={`text-right ${ch == null ? '' : ch >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                          {ch == null ? '—' : `${ch >= 0 ? '+' : ''}${(ch * 100).toFixed(0)}%`}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </>
           )}
-        </CardContent>
-      </Card>
+        </ChartCard>
+      </div>
 
       <Card>
         <CardHeader>
@@ -166,37 +231,33 @@ export function Funnel() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Vistas de producto y conversión por día</CardTitle>
-        </CardHeader>
-        <CardContent className="h-72">
-          {(data.data?.daily.length ?? 0) === 0 ? (
-            <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
-              {data.loading ? 'Cargando…' : 'Sin datos para este filtro.'}
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={(data.data?.daily ?? []).map((d) => ({ ...d, conv: (d.conversion ?? 0) * 100 }))}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="day" tickFormatter={(d: string) => d.slice(5)} />
-                <YAxis yAxisId="v" width={56} />
-                <YAxis yAxisId="c" orientation="right" tickFormatter={(v: number) => `${v}%`} width={44} />
-                <Tooltip formatter={(v, name) => (name === 'Conversión' ? `${Number(v).toFixed(2)}%` : count(Number(v)))} />
-                <Legend />
-                <Bar yAxisId="v" dataKey="page_views" name="Vistas de producto" fill="#3b82f6" />
-                <Line yAxisId="c" dataKey="conv" name="Conversión" stroke="#f59e0b" dot={false} strokeWidth={2} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          )}
-        </CardContent>
-      </Card>
+      <ChartCard
+        title="Vistas de producto y conversión por día"
+        csv={daily.map((d) => ({ dia: d.day, impresiones: d.impressions, vistas: d.page_views, compradores: d.buyers, ordenes: d.orders, ventas: d.gmv, conversion: d.conversion }))}
+        filename="embudo-por-dia"
+      >
+        {daily.length === 0 ? (
+          <EmptyChart>{data.loading ? 'Cargando…' : 'Sin datos para este filtro.'}</EmptyChart>
+        ) : (
+          <ComboChart
+            data={daily}
+            xKey="day"
+            xFormat={shortDate}
+            leftFormat={axisNumber}
+            rightFormat={axisPct}
+            series={[
+              { key: 'page_views', label: 'Vistas de producto', type: 'bar', color: '#3b82f6', format: (v) => count(v) },
+              { key: 'conv', label: 'Conversión', type: 'line', axis: 'right', color: '#f59e0b', format: (v) => percent(v) },
+            ]}
+          />
+        )}
+      </ChartCard>
 
-      <p className="text-muted-foreground max-w-3xl text-xs">
+      <Hint>
         Datos de la API de analytics de TikTok Shop (hasta 90 días atrás). Los compradores se suman por día, así que una
         persona que compró en dos días cuenta dos veces. El tráfico de la tienda es de todos los canales de TikTok, no
         solo de tus órdenes sincronizadas.
-      </p>
+      </Hint>
     </div>
   )
 }

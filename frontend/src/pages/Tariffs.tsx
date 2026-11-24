@@ -1,20 +1,18 @@
 import { useMemo, useRef, useState } from 'react'
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { ChannelBadge } from '@/components/ChannelBadge'
-import { Callout, ErrorAlert, Hint, Kpi, NumberField, PILL, Pill, Segmented, pct1 } from '@/components/analytics/ui'
+import { Callout, ErrorAlert, Hint, Kpi, NumberField, PILL, Pill, pct1 } from '@/components/analytics/ui'
+import { ComboChart, type ComboSeries } from '@/components/charts/ComboChart'
+import { Donut } from '@/components/charts/Donut'
+import { ChartCard, COLOR, EmptyChart, axisMoney } from '@/components/charts/kit'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { analytics, type LandedImportResult } from '@/lib/analytics'
 import { count, money, tone } from '@/lib/format'
+import { rangeDays } from '@/lib/periodDays'
+import { useScope } from '@/lib/scope'
 import { useAsync } from '@/lib/useAsync'
-
-const WINDOWS = [
-  { value: '30', label: '30 días' },
-  { value: '60', label: '60 días' },
-  { value: '90', label: '90 días' },
-]
 
 function ImportCard({ onDone }: { onDone: () => void }) {
   const input = useRef<HTMLInputElement>(null)
@@ -93,32 +91,66 @@ function ImportCard({ onDone }: { onDone: () => void }) {
 
 export function Tariffs() {
   const [extra, setExtra] = useState(0.1)
-  const [days, setDays] = useState(60)
+  const scope = useScope()
+  const days = rangeDays(scope.range)
   const [version, setVersion] = useState(0)
   const data = useAsync(() => analytics.tariffs(extra, days), [extra, days, version])
   const sm = data.data?.summary
 
-  const chart = useMemo(
+  const monthly = useMemo(
     () =>
       (data.data?.monthly ?? []).map((m) => ({
         month: m.month,
-        Aranceles: m.duty_rate == null ? null : +(m.duty_rate * 100).toFixed(2),
-        Flete: m.freight_rate == null ? null : +(m.freight_rate * 100).toFixed(2),
+        duties: m.duties,
+        freight: m.freight,
+        duty_rate: m.duty_rate == null ? null : +(m.duty_rate * 100).toFixed(2),
+        freight_rate: m.freight_rate == null ? null : +(m.freight_rate * 100).toFixed(2),
       })),
     [data.data],
   )
+  const monthlySeries: ComboSeries[] = [
+    { key: 'duties', label: 'Aranceles ($)', type: 'bar', stack: 'c', color: COLOR.bad, format: money },
+    { key: 'freight', label: 'Flete ($)', type: 'bar', stack: 'c', color: COLOR.blue, format: money },
+    { key: 'duty_rate', label: 'Aranceles (% de fábrica)', type: 'line', axis: 'right', color: '#b91c1c', format: (v) => `${v.toFixed(1)}%` },
+    { key: 'freight_rate', label: 'Flete (% de fábrica)', type: 'line', axis: 'right', color: '#1d4ed8', format: (v) => `${v.toFixed(1)}%` },
+  ]
+  // Costo por unidad de los productos con más ventas: fábrica + arancel + flete (un SKU una sola vez).
+  const stacked = useMemo(() => {
+    const seen = new Set<string>()
+    return (data.data?.rows ?? [])
+      .filter((r) => (seen.has(r.sku) ? false : (seen.add(r.sku), true)))
+      .sort((a, b) => b.units * b.landed_unit - a.units * a.landed_unit)
+      .slice(0, 12)
+      .map((r) => ({
+        name: (r.product_name ?? r.sku).slice(0, 18),
+        sku: r.sku,
+        fob: r.fob,
+        duty: r.fob * r.duty_rate,
+        freight: r.fob * r.freight_rate,
+      }))
+  }, [data.data])
+  const stackedSeries: ComboSeries[] = [
+    { key: 'fob', label: 'Producto (fábrica)', type: 'bar', stack: 'u', color: '#3b82f6', format: money },
+    { key: 'duty', label: 'Arancel', type: 'bar', stack: 'u', color: COLOR.bad, format: money },
+    { key: 'freight', label: 'Flete', type: 'bar', stack: 'u', color: COLOR.amber, format: money },
+  ]
+  const totals = useMemo(() => {
+    const m = data.data?.monthly ?? []
+    return {
+      goods: m.reduce((a, x) => a + x.goods, 0),
+      duties: m.reduce((a, x) => a + x.duties, 0),
+      freight: m.reduce((a, x) => a + x.freight, 0),
+    }
+  }, [data.data])
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Aranceles y costos de importación</h1>
+        <div>
+          <h1 className="text-2xl font-semibold">Aranceles y costos de importación</h1>
+          <p className="text-muted-foreground text-xs">Ventas del período del filtro de arriba: últimos {days} días.</p>
+        </div>
         <div className="flex flex-wrap items-end gap-4">
-          <Segmented
-            label="Ventana de ventas"
-            value={String(days)}
-            options={WINDOWS}
-            onChange={(v) => setDays(Number(v))}
-          />
           <NumberField
             label="Simular arancel extra"
             value={Math.round(extra * 100)}
@@ -166,6 +198,45 @@ export function Tariffs() {
           hint="lo que costaría el arancel extra"
           className={(sm?.profit_change ?? 0) < 0 ? 'text-red-600' : ''}
         />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <ChartCard
+          title="Costo por unidad de los productos principales"
+          subtitle="Producto + arancel + flete por unidad (último contenedor recibido). Apaga componentes con la leyenda."
+          filename="costo-por-producto"
+          csv={stacked.map((r) => ({ producto: r.name, sku: r.sku, fabrica: r.fob, arancel: r.duty, flete: r.freight }))}
+        >
+          {data.loading && !data.data ? (
+            <EmptyChart>Cargando…</EmptyChart>
+          ) : (
+            <ComboChart data={stacked} xKey="name" series={stackedSeries} leftFormat={axisMoney} height={300} />
+          )}
+        </ChartCard>
+        <ChartCard
+          title="Composición del costo total importado"
+          subtitle="Mercancía, aranceles y flete de todos los contenedores cargados."
+          filename="composicion-costo-importado"
+          csv={[
+            { componente: 'Mercancía (fábrica)', monto: totals.goods },
+            { componente: 'Aranceles', monto: totals.duties },
+            { componente: 'Flete', monto: totals.freight },
+          ]}
+        >
+          {data.loading && !data.data ? (
+            <EmptyChart>Cargando…</EmptyChart>
+          ) : (
+            <Donut
+              centerLabel="costo total"
+              format={money}
+              slices={[
+                { id: 'goods', label: 'Mercancía (fábrica)', value: totals.goods },
+                { id: 'duties', label: 'Aranceles', value: totals.duties },
+                { id: 'freight', label: 'Flete', value: totals.freight },
+              ]}
+            />
+          )}
+        </ChartCard>
       </div>
 
       <Card>
@@ -225,30 +296,18 @@ export function Tariffs() {
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Aranceles y flete por mes (% del valor de fábrica)</CardTitle>
-          </CardHeader>
-          <CardContent className="h-72">
-            {chart.length === 0 ? (
-              <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
-                {data.loading ? 'Cargando…' : 'Sin recepciones.'}
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chart}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="month" />
-                  <YAxis tickFormatter={(v: number) => `${v}%`} width={48} />
-                  <Tooltip formatter={(v) => `${Number(v).toFixed(1)}%`} />
-                  <Legend />
-                  <Line type="monotone" dataKey="Aranceles" stroke="#dc2626" dot />
-                  <Line type="monotone" dataKey="Flete" stroke="#2563eb" dot />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
+        <ChartCard
+          title="Aranceles y flete por mes"
+          subtitle="Barras: dólares pagados (eje izquierdo). Líneas: porcentaje del valor de fábrica (eje derecho)."
+          filename="aranceles-flete-por-mes"
+          csv={monthly.map((m) => ({ mes: m.month, aranceles: m.duties, flete: m.freight, aranceles_pct: m.duty_rate, flete_pct: m.freight_rate }))}
+        >
+          {data.loading && !data.data ? (
+            <EmptyChart>Cargando…</EmptyChart>
+          ) : (
+            <ComboChart data={monthly} xKey="month" series={monthlySeries} leftFormat={axisMoney} rightFormat={(v) => `${v}%`} height={300} />
+          )}
+        </ChartCard>
         <Card>
           <CardHeader>
             <CardTitle>Contenedores por mes</CardTitle>

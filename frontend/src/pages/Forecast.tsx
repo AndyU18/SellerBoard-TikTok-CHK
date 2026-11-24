@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { ChannelBadge } from '@/components/ChannelBadge'
 import { ErrorAlert, Hint, Kpi, NumberField, PILL, Pill, Segmented, pct1 } from '@/components/analytics/ui'
+import { HBarChart, type HBarRow } from '@/components/analytics/HBarChart'
+import { ComboChart, type ComboSeries } from '@/components/charts/ComboChart'
+import { ChartCard, COLOR, EmptyChart, axisMoney, axisNumber, axisPct } from '@/components/charts/kit'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -100,16 +102,46 @@ export function Forecast() {
   const forecast = useAsync(() => analytics.forecast(sc, { horizon, multiplier }), [sc, horizon, multiplier])
   const goals = useAsync(() => analytics.goals(`${month}-01`, multiplier), [month, multiplier, version])
 
+  const t = forecast.data?.totals
+  const mfmt = METRIC[metric].format
+  const axisFmt = metric === 'units' ? axisNumber : axisMoney
+  // Ancho diario del rango: el rango del total es ±1.28 σ·√días, así que por día es el ancho total / √días.
+  const half = useMemo(() => {
+    const tot = t?.[metric]
+    const h = forecast.data?.params.horizon_days ?? 0
+    return tot && h > 0 ? Math.max(0, tot.forecast - tot.low) / Math.sqrt(h) : 0
+  }, [t, metric, forecast.data])
   const chart = useMemo(
     () =>
-      (forecast.data?.series ?? []).map((p) => ({
-        date: p.date.slice(5),
-        Real: p.forecast ? null : p[metric],
-        Pronóstico: p.forecast ? p[metric] : null,
-      })),
-    [forecast.data, metric],
+      (forecast.data?.series ?? []).map((p) => {
+        const v = p[metric]
+        const lo = metric === 'net_profit' ? v - half : Math.max(0, v - half)
+        return {
+          date: p.date.slice(5),
+          real: p.forecast ? null : v,
+          forecast: p.forecast ? v : null,
+          low: p.forecast ? lo : null,
+          high: p.forecast ? v + half : null,
+        }
+      }),
+    [forecast.data, metric, half],
   )
-  const t = forecast.data?.totals
+  const chartSeries: ComboSeries[] = [
+    { key: 'real', label: 'Real', type: 'bar', color: '#3b82f6', format: mfmt },
+    { key: 'forecast', label: 'Pronóstico', type: 'line', color: '#f59e0b', format: mfmt },
+    { key: 'low', label: 'Mínimo esperado (aprox.)', type: 'line', color: '#a8a29e', format: mfmt },
+    { key: 'high', label: 'Máximo esperado (aprox.)', type: 'line', color: '#a8a29e', format: mfmt },
+  ]
+  const goalRows = useMemo<HBarRow[]>(
+    () =>
+      (goals.data?.goals ?? []).map((g) => ({
+        id: String(g.id),
+        label: `${METRIC[g.metric].label} · ${g.channel ? CHANNEL_LABEL[g.channel] : 'Todos'}`,
+        done: g.attainment ?? 0,
+        projected: g.projected_attainment ?? 0,
+      })),
+    [goals.data],
+  )
 
   async function addGoal() {
     setGoalError(null)
@@ -182,36 +214,23 @@ export function Forecast() {
         ))}
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex flex-wrap items-center justify-between gap-3">
-            <span>Real y pronóstico por día</span>
-            <Segmented label="Métrica" value={metric} options={METRIC_OPTIONS} onChange={setMetric} />
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="h-72">
-          {chart.length === 0 ? (
-            <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
-              {forecast.loading ? 'Cargando…' : 'Sin datos.'}
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chart}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="date" minTickGap={24} />
-                <YAxis
-                  tickFormatter={(v: number) => (metric === 'units' ? `${v}` : `$${v.toLocaleString('en-US')}`)}
-                  width={72}
-                />
-                <Tooltip formatter={(v) => METRIC[metric].format(Number(v))} />
-                <Legend />
-                <Line type="monotone" dataKey="Real" stroke="#2563eb" dot={false} />
-                <Line type="monotone" dataKey="Pronóstico" stroke="#f59e0b" strokeDasharray="6 4" dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </CardContent>
-      </Card>
+      <ChartCard
+        title="Real y pronóstico por día"
+        subtitle="Barras: lo vendido. Línea naranja: pronóstico. Líneas grises: rango esperado (aprox. percentiles 10 y 90)."
+        filename={`pronostico-${metric}`}
+        csv={(forecast.data?.series ?? []).map((p) => ({
+          fecha: p.date,
+          tipo: p.forecast ? 'pronóstico' : 'real',
+          valor: p[metric],
+        }))}
+        actions={<Segmented label="Métrica" value={metric} options={METRIC_OPTIONS} onChange={setMetric} />}
+      >
+        {forecast.loading && !forecast.data ? (
+          <EmptyChart>Cargando…</EmptyChart>
+        ) : (
+          <ComboChart data={chart} xKey="date" series={chartSeries} leftFormat={axisFmt} />
+        )}
+      </ChartCard>
 
       <section className="space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -232,6 +251,38 @@ export function Forecast() {
             {goalError}
           </div>
         )}
+
+        <ChartCard
+          title="Avance contra cada meta"
+          subtitle="Cumplido hasta hoy y proyección al cierre del mes; la línea marca el 100 % de la meta."
+          filename="avance-metas"
+          csv={(goals.data?.goals ?? []).map((g) => ({
+            metrica: METRIC[g.metric].label,
+            canal: g.channel ? CHANNEL_LABEL[g.channel] : 'Todos',
+            meta: g.target,
+            real: g.actual,
+            proyectado: g.projected,
+            cumplido: g.attainment,
+            proyeccion: g.projected_attainment,
+          }))}
+        >
+          {goals.loading && !goals.data ? (
+            <EmptyChart>Cargando…</EmptyChart>
+          ) : goalRows.length === 0 ? (
+            <EmptyChart>No hay metas para este mes.</EmptyChart>
+          ) : (
+            <HBarChart
+              rows={goalRows}
+              series={[
+                { key: 'done', label: 'Cumplido', color: COLOR.good },
+                { key: 'projected', label: 'Proyección al cierre', color: COLOR.amber },
+              ]}
+              format={axisPct}
+              refLine={1}
+              labelWidth={130}
+            />
+          )}
+        </ChartCard>
 
         <div className="grid gap-4 xl:grid-cols-2">
           {(goals.data?.goals ?? []).map((g) => (

@@ -1,14 +1,17 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 
 import { ChannelOnlyNotice } from '@/components/ScopeBar'
-import { FilterBar } from '@/components/FilterBar'
+import { ErrorAlert } from '@/components/analytics/ui'
+import { Donut } from '@/components/charts/Donut'
+import { ChartCard } from '@/components/charts/kit'
+import { AsyncBody, HBars } from '@/components/operacion/shared'
 import { SellerPerformance } from '@/components/SellerPerformance'
 import { ShippingProfit } from '@/components/analytics/ShippingProfit'
 import { useScope } from '@/lib/scope'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { api, type Filters } from '@/lib/api'
-import { count, percent, presetRange, type Preset } from '@/lib/format'
+import { count, percent } from '@/lib/format'
 import { useAsync } from '@/lib/useAsync'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -39,29 +42,26 @@ function Kpi({ title, value, hint, className = '' }: { title: string; value: str
 }
 
 export function Logistics() {
-  const [preset, setPreset] = useState<Preset>('90d')
   const scope = useScope()
+  const { start, end } = scope.range
   const filters = useMemo<Filters>(
-    () => ({ ...presetRange(preset), channel: scope.channelParam, account: scope.account }),
-    [preset, scope.channelParam, scope.account],
+    () => ({ start, end, channel: scope.channelParam, account: scope.account }),
+    [start, end, scope.channelParam, scope.account],
   )
   const data = useAsync(() => api.logistics(filters), [filters])
   const sm = data.data?.summary
+  const carriers = data.data?.by_carrier ?? []
+  const statusSlices = (data.data?.by_status ?? []).map((s) => ({ id: s.status, label: STATUS_LABEL[s.status] ?? s.status, value: s.orders }))
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Logística y entregas</h1>
-        <FilterBar preset={preset} onPreset={setPreset} />
       </div>
       <ChannelOnlyNotice channels={['tiktok_shop']} what="Los tiempos de envío y transportistas" />
       <SellerPerformance />
 
-      {data.error && (
-        <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-          No se pudo cargar: {data.error}
-        </div>
-      )}
+      <ErrorAlert message={data.error} />
 
       {(sm?.overdue_now ?? 0) > 0 && (
         <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
@@ -92,6 +92,32 @@ export function Logistics() {
           value={count(sm?.sample_orders ?? 0)}
           hint={`de ${count(sm?.shipments ?? 0)} órdenes en el periodo`}
         />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <ChartCard
+          title="Tránsito promedio por transportista"
+          subtitle="Días de la recolección a la entrega; al pasar el cursor se ven los envíos."
+          csv={carriers.map((c) => ({ transportista: c.carrier, envios: c.shipments, entregados: c.delivered, transito_dias: c.transit_days_avg }))}
+          filename="transito-por-transportista"
+        >
+          <AsyncBody state={data} empty={carriers.length === 0}>
+            <HBars
+              data={carriers.map((c) => ({ id: c.carrier, label: c.carrier, value: c.transit_days_avg ?? 0, extra: `${count(c.shipments)} envíos · ${count(c.delivered)} entregados` }))}
+              format={(v) => `${v.toFixed(1)} d`}
+              valueLabel="Tránsito"
+            />
+          </AsyncBody>
+        </ChartCard>
+        <ChartCard
+          title="Estado de las órdenes"
+          csv={statusSlices.map((s) => ({ estado: s.label, ordenes: s.value }))}
+          filename="estado-de-ordenes"
+        >
+          <AsyncBody state={data} empty={statusSlices.length === 0}>
+            <Donut slices={statusSlices} format={count} centerLabel="órdenes" />
+          </AsyncBody>
+        </ChartCard>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
@@ -130,21 +156,6 @@ export function Logistics() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Estado de las órdenes</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="divide-y text-sm">
-              {(data.data?.by_status ?? []).map((s) => (
-                <li key={s.status} className="flex items-center justify-between py-1.5">
-                  <span>{STATUS_LABEL[s.status] ?? s.status}</span>
-                  <span className="font-medium">{count(s.orders)}</span>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
       </div>
 
       <ShippingProfit />

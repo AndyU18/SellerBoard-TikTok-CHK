@@ -1,21 +1,18 @@
 import { useMemo, useState } from 'react'
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { ChannelBadge } from '@/components/ChannelBadge'
 import { Callout, ErrorAlert, Hint, PILL, Pill, Segmented, pct1 } from '@/components/analytics/ui'
+import { BubbleChart, type BubblePoint } from '@/components/charts/BubbleChart'
+import { ComboChart } from '@/components/charts/ComboChart'
+import { ChartCard, EmptyChart } from '@/components/charts/kit'
+import { stateCode, UsTileMap } from '@/components/charts/UsTileMap'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { CHANNEL_LABEL, type Channel } from '@/lib/api'
 import { count, money } from '@/lib/format'
-import type { Channel } from '@/lib/api'
-import { redo, type RedoCostBucket, type RedoOrderRow, type RedoOrigin } from '@/lib/redo'
+import { daysFromPreset, redo, type RedoCostBucket, type RedoOrderRow, type RedoOrigin } from '@/lib/redo'
+import { useScope } from '@/lib/scope'
 import { useAsync } from '@/lib/useAsync'
-
-const PERIODS = [
-  { value: '30', label: '30 días' },
-  { value: '90', label: '90 días' },
-  { value: '180', label: '180 días' },
-  { value: '365', label: '365 días' },
-]
 
 const ORIGIN_LABEL: Record<RedoOrigin, { label: string; pill: string }> = {
   tiktok_shop: { label: 'TikTok Shop', pill: PILL.green },
@@ -25,9 +22,28 @@ const ORIGIN_LABEL: Record<RedoOrigin, { label: string; pill: string }> = {
   otro: { label: 'Otro', pill: PILL.slate },
 }
 
-type SortKey = 'cost' | 'orders' | 'avg_cost' | 'cost_per_unit' | 'share_of_sales' | 'key'
+/** Rangos de costo que entrega la API (mismos textos que backend/app/redo_analytics.py BUCKETS). */
+const BUCKET_RANGE: Record<string, [number, number]> = {
+  'Menos de $8': [0, 8],
+  '$8 a $12': [8, 12],
+  '$12 a $16': [12, 16],
+  '$16 a $25': [16, 25],
+  '$25 o más': [25, Infinity],
+}
 
-function OrdersTable({ rows, empty }: { rows: RedoOrderRow[]; empty: string }) {
+type SortKey = 'cost' | 'orders' | 'avg_cost' | 'cost_per_unit' | 'share_of_sales' | 'key'
+type Metric = 'avg_cost' | 'cost' | 'share_of_sales'
+
+const METRICS: { value: Metric; label: string }[] = [
+  { value: 'avg_cost', label: 'Costo promedio por orden' },
+  { value: 'cost', label: 'Costo total' },
+  { value: 'share_of_sales', label: '% de la venta' },
+]
+
+const channelName = (key: string) => CHANNEL_LABEL[key as Channel] ?? key
+const pctAxis = (v: number) => `${(v * 100).toFixed(1)}%`
+
+function OrdersTable({ rows, empty, focus }: { rows: RedoOrderRow[]; empty: string; focus: string | null }) {
   return (
     <Table>
       <TableHeader>
@@ -51,7 +67,7 @@ function OrdersTable({ rows, empty }: { rows: RedoOrderRow[]; empty: string }) {
           </TableRow>
         )}
         {rows.map((o) => (
-          <TableRow key={o.order}>
+          <TableRow key={o.order} className={focus === o.order ? 'bg-blue-50' : ''}>
             <TableCell className="font-mono text-xs">{o.order}</TableCell>
             <TableCell>
               <Pill label={ORIGIN_LABEL[o.channel]?.label ?? o.channel} className={ORIGIN_LABEL[o.channel]?.pill ?? PILL.slate} />
@@ -72,11 +88,26 @@ function OrdersTable({ rows, empty }: { rows: RedoOrderRow[]; empty: string }) {
   )
 }
 
+/** Chip que muestra un filtro activo y permite quitarlo. */
+function ActiveFilter({ label, onClear }: { label: string; onClear: () => void }) {
+  return (
+    <button type="button" onClick={onClear} className="rounded-full border bg-blue-50 px-3 py-1 text-xs hover:bg-blue-100">
+      {label} ✕
+    </button>
+  )
+}
+
 export function RedoCosts() {
-  const [days, setDays] = useState('90')
+  const { preset } = useScope()
+  const days = daysFromPreset(preset)
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'cost', dir: -1 })
-  const data = useAsync(() => redo.costs(Number(days)), [days])
+  const [metric, setMetric] = useState<Metric>('avg_cost')
+  const [selState, setSelState] = useState<string | null>(null)
+  const [bucket, setBucket] = useState<string | null>(null)
+  const [focusOrder, setFocusOrder] = useState<string | null>(null)
+  const data = useAsync(() => redo.costs(days), [days])
   const d = data.data
+  const empty = (msg: string) => <EmptyChart>{data.loading ? 'Cargando…' : msg}</EmptyChart>
 
   const states = useMemo(() => {
     const rows = [...(d?.by_state ?? [])]
@@ -108,13 +139,50 @@ export function RedoCosts() {
     </TableHead>
   )
 
-  const maxOrders = Math.max(0, ...(d?.distribution ?? []).map((b) => b.orders))
+  const metricFmt = metric === 'share_of_sales' ? pctAxis : money
+  const mapData = (d?.by_state ?? [])
+    .filter((s) => s[metric] != null)
+    .map((s) => ({ state: s.key, value: s[metric] as number, extra: `${s.orders} órdenes` }))
+
+  const pickState = (name: string) => {
+    const next = selState === name ? null : name
+    setSelState(next)
+    if (next) {
+      const row = (d?.by_state ?? []).find((s) => stateCode(s.key) === stateCode(next))
+      if (row) document.getElementById(`redo-state-${row.key}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  }
+  const selCode = stateCode(selState)
+
+  const range = bucket ? BUCKET_RANGE[bucket] : null
+  const inBucket = (o: RedoOrderRow) => !range || (o.cost >= range[0] && o.cost < range[1])
+  const topOrders = (d?.top_orders ?? []).filter(inBucket)
+  const relabeled = (d?.relabeled_orders ?? []).filter(inBucket)
+
+  const bubbles = useMemo<BubblePoint[]>(() => {
+    const seen = new Map<string, RedoOrderRow>()
+    for (const o of [...(d?.top_orders ?? []), ...(d?.relabeled_orders ?? [])]) seen.set(o.order, o)
+    return [...seen.values()].map((o) => ({
+      id: o.order,
+      label: `Orden ${o.order}`,
+      x: o.cost,
+      y: o.surcharge,
+      z: Math.max(o.net_sales ?? 0, 1),
+      group: ORIGIN_LABEL[o.channel]?.label ?? o.channel,
+    }))
+  }, [d?.top_orders, d?.relabeled_orders])
+
+  const channels = (d?.by_channel ?? []).map((c) => ({ ...c, name: channelName(c.key) }))
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div>
         <h1 className="text-2xl font-semibold">Redo: costo por orden</h1>
-        <Segmented label="Periodo" value={days} options={PERIODS} onChange={setDays} />
+        {d && (
+          <p className="text-muted-foreground text-xs">
+            Del {d.window.start} al {d.window.end} (período global: {days} días)
+          </p>
+        )}
       </div>
 
       <ErrorAlert message={data.error} />
@@ -128,51 +196,98 @@ export function RedoCosts() {
         </Callout>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Por canal de venta</CardTitle>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Canal</TableHead>
-                <TableHead className="text-right">Órdenes</TableHead>
-                <TableHead className="text-right">Costo</TableHead>
-                <TableHead className="text-right">Costo promedio</TableHead>
-                <TableHead className="text-right">Costo por unidad</TableHead>
-                <TableHead className="text-right">% de la venta neta</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(d?.by_channel.length ?? 0) === 0 && (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-muted-foreground py-8 text-center">
-                    {data.loading ? 'Cargando…' : 'Sin órdenes comparables con ventas en este periodo.'}
-                  </TableCell>
-                </TableRow>
-              )}
-              {(d?.by_channel ?? []).map((c) => (
-                <TableRow key={c.key}>
-                  <TableCell>
-                    <ChannelBadge channel={c.key as Channel} />
-                  </TableCell>
-                  <TableCell className="text-right">{count(c.orders)}</TableCell>
-                  <TableCell className="text-right">{money(c.cost)}</TableCell>
-                  <TableCell className="text-right">{money(c.avg_cost)}</TableCell>
-                  <TableCell className="text-right">{money(c.cost_per_unit)}</TableCell>
-                  <TableCell className="text-right">{pct1(c.share_of_sales)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <ChartCard
+        title="Por canal de venta"
+        subtitle="Barras: costo total. Línea (eje derecho): costo promedio por orden."
+        filename="redo-por-canal"
+        csv={channels.map((c) => ({
+          Canal: c.name,
+          Ordenes: c.orders,
+          Costo: c.cost,
+          'Costo promedio': c.avg_cost,
+          'Costo por unidad': c.cost_per_unit,
+          '% de la venta neta': c.share_of_sales == null ? null : Math.round(c.share_of_sales * 10000) / 100,
+        }))}
+      >
+        {channels.length === 0 ? (
+          empty('Sin órdenes comparables con ventas en este período.')
+        ) : (
+          <div className="space-y-4">
+            <ComboChart
+              data={channels}
+              xKey="name"
+              height={240}
+              rightFormat={(v) => `$${v.toFixed(0)}`}
+              series={[
+                { key: 'cost', label: 'Costo total', type: 'bar', color: '#2563eb', format: money },
+                { key: 'avg_cost', label: 'Costo promedio por orden', type: 'line', axis: 'right', color: '#dc2626', format: money },
+              ]}
+            />
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Canal</TableHead>
+                    <TableHead className="text-right">Órdenes</TableHead>
+                    <TableHead className="text-right">Costo</TableHead>
+                    <TableHead className="text-right">Costo promedio</TableHead>
+                    <TableHead className="text-right">Costo por unidad</TableHead>
+                    <TableHead className="text-right">% de la venta neta</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {channels.map((c) => (
+                    <TableRow key={c.key}>
+                      <TableCell>
+                        <ChannelBadge channel={c.key as Channel} />
+                      </TableCell>
+                      <TableCell className="text-right">{count(c.orders)}</TableCell>
+                      <TableCell className="text-right">{money(c.cost)}</TableCell>
+                      <TableCell className="text-right">{money(c.avg_cost)}</TableCell>
+                      <TableCell className="text-right">{money(c.cost_per_unit)}</TableCell>
+                      <TableCell className="text-right">{pct1(c.share_of_sales)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        )}
+      </ChartCard>
+
+      <ChartCard
+        title="Mapa de EE. UU. por estado de destino"
+        subtitle="Elige la métrica; pasa el cursor para el detalle y haz clic en un estado para resaltar su fila en la tabla."
+        filename="redo-mapa-estados"
+        csv={(d?.by_state ?? []).map((s) => ({
+          Estado: s.key,
+          Ordenes: s.orders,
+          Costo: s.cost,
+          'Costo promedio': s.avg_cost,
+          '% de la venta': s.share_of_sales == null ? null : Math.round(s.share_of_sales * 10000) / 100,
+        }))}
+        actions={<Segmented label="Métrica del mapa" value={metric} options={METRICS} onChange={setMetric} />}
+      >
+        {mapData.length === 0 ? (
+          empty('Sin datos por estado.')
+        ) : (
+          <UsTileMap
+            data={mapData}
+            format={metricFmt}
+            selected={selState}
+            onStateClick={pickState}
+            describe={(name, v, extra) =>
+              v == null ? `${name}: sin datos` : `${name}: ${metricFmt(v)} (${METRICS.find((m) => m.value === metric)?.label.toLowerCase()}) · ${extra ?? ''}`
+            }
+          />
+        )}
+      </ChartCard>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
             <CardTitle>Por estado de destino</CardTitle>
+            {selState && <ActiveFilter label={`Resaltado: ${selState}`} onClear={() => setSelState(null)} />}
           </CardHeader>
           <CardContent className="max-h-[32rem] overflow-auto">
             <Table>
@@ -193,63 +308,102 @@ export function RedoCosts() {
                     </TableCell>
                   </TableRow>
                 )}
-                {states.map((s) => (
-                  <TableRow key={s.key} className={pricey(s) ? 'bg-red-50' : ''}>
-                    <TableCell>{s.key}</TableCell>
-                    <TableCell className="text-right">{count(s.orders)}</TableCell>
-                    <TableCell className="text-right">{money(s.cost)}</TableCell>
-                    <TableCell className={`text-right ${pricey(s) ? 'font-medium text-red-700' : ''}`}>
-                      {money(s.avg_cost)}
-                    </TableCell>
-                    <TableCell className="text-right">{pct1(s.share_of_sales)}</TableCell>
-                  </TableRow>
-                ))}
+                {states.map((s) => {
+                  const on = selCode != null && stateCode(s.key) === selCode
+                  return (
+                    <TableRow
+                      key={s.key}
+                      id={`redo-state-${s.key}`}
+                      className={on ? 'bg-blue-100' : pricey(s) ? 'bg-red-50' : ''}
+                      onClick={() => setSelState(on ? null : s.key)}
+                    >
+                      <TableCell className={on ? 'font-semibold' : ''}>{s.key}</TableCell>
+                      <TableCell className="text-right">{count(s.orders)}</TableCell>
+                      <TableCell className="text-right">{money(s.cost)}</TableCell>
+                      <TableCell className={`text-right ${pricey(s) ? 'font-medium text-red-700' : ''}`}>
+                        {money(s.avg_cost)}
+                      </TableCell>
+                      <TableCell className="text-right">{pct1(s.share_of_sales)}</TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Órdenes por rango de costo</CardTitle>
-          </CardHeader>
-          <CardContent className="h-80">
-            {maxOrders === 0 ? (
-              <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
-                {data.loading ? 'Cargando…' : 'Sin órdenes con costo en este periodo.'}
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={d?.distribution}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="bucket" interval={0} tick={{ fontSize: 11 }} />
-                  <YAxis allowDecimals={false} width={48} />
-                  <Tooltip formatter={(v) => `${count(Number(v))} órdenes`} />
-                  <Bar dataKey="orders" name="Órdenes" fill="#2563eb" />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
+        <ChartCard
+          title="Órdenes por rango de costo"
+          subtitle="Haz clic en una barra para filtrar las tablas de órdenes de abajo a ese rango."
+          filename="redo-distribucion"
+          csv={(d?.distribution ?? []).map((b) => ({ Rango: b.bucket, Ordenes: b.orders }))}
+        >
+          {Math.max(0, ...(d?.distribution ?? []).map((b) => b.orders)) === 0 ? (
+            empty('Sin órdenes con costo en este período.')
+          ) : (
+            <ComboChart
+              data={d?.distribution ?? []}
+              xKey="bucket"
+              leftFormat={(v) => String(v)}
+              series={[{ key: 'orders', label: 'Órdenes', type: 'bar', color: '#2563eb', format: (v) => `${count(v)} órdenes` }]}
+              onPointClick={(row) => setBucket((b) => (b === row.bucket ? null : String(row.bucket)))}
+            />
+          )}
+          {bucket && (
+            <div className="mt-2">
+              <ActiveFilter label={`Rango: ${bucket}`} onClear={() => setBucket(null)} />
+            </div>
+          )}
+        </ChartCard>
       </div>
+
+      <ChartCard
+        title="Costo por orden frente a corrección del carrier"
+        subtitle="Cada burbuja es una orden (las 25 más caras y las re-etiquetadas). Tamaño = venta neta; color = origen. Clic para resaltarla en las tablas."
+        filename="redo-dispersion"
+        csv={bubbles.map((b) => ({ Orden: b.id, Origen: b.group, Costo: b.x, 'Correccion del carrier': b.y, 'Venta neta': b.z }))}
+      >
+        {bubbles.length === 0 ? (
+          empty('Sin órdenes en este período.')
+        ) : (
+          <>
+            <BubbleChart
+              points={bubbles}
+              xLabel="Costo de la orden"
+              yLabel="Corrección del carrier"
+              zLabel="Venta neta"
+              xFormat={money}
+              yFormat={money}
+              zFormat={money}
+              onPointClick={(p) => setFocusOrder((cur) => (cur === p.id ? null : p.id))}
+            />
+            {focusOrder && (
+              <div className="mt-2">
+                <ActiveFilter label={`Orden resaltada: ${focusOrder}`} onClear={() => setFocusOrder(null)} />
+              </div>
+            )}
+          </>
+        )}
+      </ChartCard>
 
       <Card>
         <CardHeader>
-          <CardTitle>Las 25 órdenes más caras</CardTitle>
+          <CardTitle>Las 25 órdenes más caras{bucket ? ` · ${bucket}` : ''}</CardTitle>
         </CardHeader>
         <CardContent className="overflow-x-auto">
-          <OrdersTable rows={d?.top_orders ?? []} empty={data.loading ? 'Cargando…' : 'Sin órdenes en este periodo.'} />
+          <OrdersTable rows={topOrders} focus={focusOrder} empty={data.loading ? 'Cargando…' : 'Sin órdenes en este periodo o rango.'} />
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Órdenes re-etiquetadas</CardTitle>
+          <CardTitle>Órdenes re-etiquetadas{bucket ? ` · ${bucket}` : ''}</CardTitle>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <OrdersTable
-            rows={d?.relabeled_orders ?? []}
-            empty={data.loading ? 'Cargando…' : 'Ninguna orden tuvo más de una etiqueta.'}
+            rows={relabeled}
+            focus={focusOrder}
+            empty={data.loading ? 'Cargando…' : 'Ninguna orden re-etiquetada en este periodo o rango.'}
           />
         </CardContent>
       </Card>

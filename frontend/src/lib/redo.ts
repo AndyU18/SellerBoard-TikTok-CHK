@@ -1,6 +1,7 @@
 // Tipos y llamadas del apartado Redo (backend: app/redo_api.py y app/redo_analytics.py).
 // Importado por pages/RedoOverview, RedoCosts, RedoBilling y RedoCharges. Solo lectura.
 import { authFetch, parse, query } from '@/lib/api'
+import type { Preset } from '@/lib/format'
 
 type Params = Record<string, string | number | undefined | null>
 
@@ -8,6 +9,18 @@ function qs(p: Params): string {
   const out: Record<string, string | undefined> = {}
   for (const [k, v] of Object.entries(p)) out[k] = v == null || v === '' ? undefined : String(v)
   return query(out)
+}
+
+/** Días que pide la API Redo (7 a 365) a partir del período global; 'Todo' = 365. */
+export function daysFromPreset(preset: Preset, today: Date = new Date()): number {
+  if (preset === '30d') return 30
+  if (preset === '90d') return 90
+  if (preset === 'ytd') {
+    const jan1 = new Date(today.getFullYear(), 0, 1)
+    const d = Math.floor((today.getTime() - jan1.getTime()) / 86_400_000) + 1
+    return Math.min(365, Math.max(7, d))
+  }
+  return 365
 }
 
 const get = <T>(path: string, p: Params = {}) => authFetch(`${path}${qs(p)}`).then((r) => parse<T>(r))
@@ -133,6 +146,9 @@ export interface RedoChargeRow {
 export interface RedoChargesResponse {
   total: number
   amount: number
+  /** Resumen de todo el filtro (no solo de la página). */
+  by_subtype: { subtype: string; label: string; count: number; amount: number; is_cost: boolean }[]
+  by_day: { date: string; amount: number }[]
   subtypes: { value: string; label: string }[]
   rows: RedoChargeRow[]
 }

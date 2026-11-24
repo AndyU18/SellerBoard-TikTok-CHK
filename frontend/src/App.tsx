@@ -16,6 +16,7 @@ import {
   ListOrdered,
   LogOut,
   Mail,
+  Megaphone,
   Package,
   PackageCheck,
   Radio,
@@ -65,6 +66,7 @@ import { Pnl } from '@/pages/Pnl'
 import { Pricing } from '@/pages/Pricing'
 import { Products } from '@/pages/Products'
 import { Promotions } from '@/pages/Promotions'
+import { Ads } from '@/pages/Ads'
 import { Reconciliation } from '@/pages/Reconciliation'
 import { RedoBilling } from '@/pages/RedoBilling'
 import { RedoCharges } from '@/pages/RedoCharges'
@@ -96,6 +98,7 @@ type Page =
   | 'dayparting'
   | 'cashflow'
   | 'reconciliation'
+  | 'ads'
   | 'redo'
   | 'redoCosts'
   | 'redoBilling'
@@ -126,6 +129,7 @@ const NAV: NavItem[] = [
   { group: 'Rentabilidad', id: 'versus', label: 'Versus', icon: <GitCompareArrows className={icon} />, permission: 'profit.view' },
   { group: 'Rentabilidad', id: 'pricing', label: 'Precios', icon: <DollarSign className={icon} />, permission: 'profit.view' },
   { group: 'Rentabilidad', id: 'tariffs', label: 'Aranceles', icon: <Ship className={icon} />, permission: 'profit.view' },
+  { group: 'Rentabilidad', id: 'ads', label: 'Publicidad (TikTok Ads)', icon: <Megaphone className={icon} />, permission: 'profit.view' },
   { group: 'Rentabilidad', id: 'promotions', label: 'Promociones', icon: <Tag className={icon} />, permission: 'profit.view' },
   { group: 'Operación', id: 'inventory', label: 'Inventario', icon: <Warehouse className={icon} />, permission: 'profit.view' },
   { group: 'Operación', id: 'reorder', label: 'Reposición', icon: <Boxes className={icon} />, permission: 'profit.view' },
@@ -292,6 +296,7 @@ export default function App() {
           {current === 'dayparting' && <Dayparting />}
           {current === 'cashflow' && <Cashflow />}
           {current === 'reconciliation' && <Reconciliation />}
+          {current === 'ads' && <Ads />}
           {current === 'redo' && <RedoOverview />}
           {current === 'redoCosts' && <RedoCosts />}
           {current === 'redoBilling' && <RedoBilling />}

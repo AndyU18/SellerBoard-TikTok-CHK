@@ -1,13 +1,18 @@
 import { useMemo, useState } from 'react'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ChannelOnlyNotice } from '@/components/ScopeBar'
+import { ErrorAlert } from '@/components/analytics/ui'
+import { BubbleChart, type BubblePoint } from '@/components/charts/BubbleChart'
+import { ComboChart } from '@/components/charts/ComboChart'
+import { HeatTable, type HeatRow } from '@/components/charts/HeatTable'
+import { axisNumber, ChartCard, EmptyChart } from '@/components/charts/kit'
 import { api, type Filters } from '@/lib/api'
 import { useScope } from '@/lib/scope'
-import { count, money, percent, PRESETS, presetRange, tone, type Preset } from '@/lib/format'
+import { chartdataDinero, shortDate } from '@/lib/chartdata_dinero'
+import { count, money, percent, tone } from '@/lib/format'
 import { useAsync } from '@/lib/useAsync'
 
 const TYPE_LABEL: Record<string, string> = {
@@ -34,50 +39,77 @@ function Kpi({ title, value, hint, className = '' }: { title: string; value: str
 }
 
 export function Creatives() {
-  const [preset, setPreset] = useState<Preset>('90d')
   const [type, setType] = useState<string>('all')
   const [sort, setSort] = useState<Sort>('gmv')
+  const [metric, setMetric] = useState<'gmv' | 'orders'>('gmv')
+  const [focus, setFocus] = useState<string | null>(null)
   const scope = useScope()
+  const { start, end } = scope.range
   const filters = useMemo<Filters>(
-    () => ({ ...presetRange(preset), channel: scope.channelParam, account: scope.account }),
-    [preset, scope.channelParam, scope.account],
+    () => ({ start, end, channel: scope.channelParam, account: scope.account }),
+    [start, end, scope.channelParam, scope.account],
   )
   const data = useAsync(() => api.creatives(filters), [filters])
+  const weekly = useAsync(() => chartdataDinero.creativeWeekly(filters, 15), [filters])
 
   const sm = data.data?.summary
   const rows = useMemo(
     () =>
       (data.data?.contents ?? [])
         .filter((c) => type === 'all' || c.content_type === type)
+        .filter((c) => !focus || `${c.content_type}-${c.content_id}` === focus)
         .sort((a, b) => b[sort] - a[sort]),
-    [data.data, type, sort],
+    [data.data, type, sort, focus],
+  )
+  const name = (c: { creator: string | null; content_type: string; content_id: string }) =>
+    `${c.creator ? `@${c.creator} ` : ''}${TYPE_LABEL[c.content_type] ?? c.content_type} …${c.content_id.slice(-6)}`
+
+  // Mejores contenidos: ventas en barras y vistas en línea (eje derecho).
+  const top = useMemo(
+    () =>
+      [...(data.data?.contents ?? [])]
+        .sort((a, b) => b.gmv - a.gmv)
+        .slice(0, 12)
+        .map((c) => ({ key: `${c.content_type}-${c.content_id}`, name: name(c), gmv: c.gmv, orders: c.orders, views: c.views, profit: c.profit })),
+    [data.data],
+  )
+
+  const heat = useMemo<{ cols: string[]; rows: HeatRow[] }>(() => {
+    const w = weekly.data
+    if (!w) return { cols: [], rows: [] }
+    return {
+      cols: w.weeks.map(shortDate),
+      rows: w.rows.map((r) => ({
+        id: `${r.content_type}-${r.content_id}`,
+        label: name({ creator: r.creator, content_type: r.content_type, content_id: r.content_id }),
+        values: w.weeks.map((wk) => r.weeks[wk]?.[metric] ?? 0),
+      })),
+    }
+  }, [weekly.data, metric])
+
+  const points = useMemo<BubblePoint[]>(
+    () =>
+      (data.data?.contents ?? [])
+        .filter((c) => c.views != null)
+        .map((c) => ({
+          id: `${c.content_type}-${c.content_id}`,
+          label: name(c),
+          x: c.views ?? 0,
+          y: c.gmv,
+          z: Math.max(1, c.orders),
+          group: TYPE_LABEL[c.content_type] ?? c.content_type,
+        })),
+    [data.data],
   )
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Creativos y videos virales</h1>
-        <Select items={PRESETS} value={preset} onValueChange={(v) => v && setPreset(v as Preset)}>
-          <SelectTrigger className="w-44" aria-label="Periodo">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {PRESETS.map((p) => (
-              <SelectItem key={p.value} value={p.value}>
-                {p.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <h1 className="text-2xl font-semibold">Creativos y videos virales</h1>
 
       <ChannelOnlyNotice channels={['tiktok_shop']} what="Creativos y videos virales" />
 
-      {data.error && (
-        <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-          No se pudo cargar: {data.error}
-        </div>
-      )}
+      <ErrorAlert message={data.error} />
+      <ErrorAlert message={weekly.error} />
 
       {sm && sm.orders_pending > 0 && (
         <div role="status" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
@@ -110,6 +142,82 @@ export function Creatives() {
           className={(sm?.losing_contents ?? 0) > 0 ? 'text-red-600' : ''}
         />
       </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <ChartCard
+          title="Contenidos con más ventas"
+          subtitle="Barras = ventas (base de comisión); línea = vistas de los últimos 60 días (eje derecho, solo videos). Clic para ver su fila."
+          csv={top.map((t) => ({ contenido: t.name, ventas: t.gmv, ordenes: t.orders, vistas: t.views, utilidad: t.profit }))}
+          filename="creativos-top-ventas"
+        >
+          {top.length === 0 ? (
+            <EmptyChart>{data.loading ? 'Cargando…' : 'Sin ventas de creadores.'}</EmptyChart>
+          ) : (
+            <ComboChart
+              data={top}
+              xKey="name"
+              xFormat={(v) => String(v).replace(/^@\S+ /, '')}
+              rightFormat={axisNumber}
+              onPointClick={(r) => setFocus(String(r.key))}
+              series={[
+                { key: 'gmv', label: 'Ventas', type: 'bar', color: '#3b82f6' },
+                { key: 'views', label: 'Vistas', type: 'line', axis: 'right', color: '#f59e0b', format: (v) => count(v) },
+              ]}
+            />
+          )}
+        </ChartCard>
+
+        <ChartCard
+          title="Vistas vs ventas"
+          subtitle="Cada burbuja es un video con vistas registradas; tamaño = órdenes. Arriba a la izquierda convierte mucho con poco alcance."
+          csv={points.map((p) => ({ contenido: p.label, vistas: p.x, ventas: p.y, ordenes: p.z, tipo: p.group }))}
+          filename="creativos-vistas-vs-ventas"
+        >
+          <BubbleChart
+            points={points}
+            xLabel="Vistas"
+            yLabel="Ventas"
+            zLabel="Órdenes"
+            xFormat={axisNumber}
+            yFormat={money}
+            zFormat={(v) => count(v)}
+            onPointClick={(p) => setFocus(p.id)}
+          />
+        </ChartCard>
+      </div>
+
+      <ChartCard
+        title="Videos por semana"
+        subtitle="Mapa de calor de los 15 contenidos con más ventas, por semana de la orden. El color compara cada fila contra sí misma. Las vistas no se guardan por semana, por eso no aparecen aquí."
+        csv={heat.rows.map((r) => Object.fromEntries([['contenido', r.label], ...heat.cols.map((c, i) => [c, r.values[i]])]))}
+        filename="creativos-por-semana"
+        actions={
+          <Tabs value={metric} onValueChange={(v) => setMetric(v as 'gmv' | 'orders')}>
+            <TabsList>
+              <TabsTrigger value="gmv">Ventas</TabsTrigger>
+              <TabsTrigger value="orders">Órdenes</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        }
+      >
+        {heat.rows.length === 0 ? (
+          <EmptyChart>{weekly.loading ? 'Cargando…' : 'Sin datos semanales.'}</EmptyChart>
+        ) : (
+          <HeatTable
+            columns={heat.cols}
+            rows={heat.rows}
+            format={metric === 'gmv' ? money : (v) => count(v)}
+            firstColumn="Contenido"
+            onRowClick={(r) => setFocus(r.id)}
+          />
+        )}
+      </ChartCard>
+
+      {focus && (
+        <button type="button" onClick={() => setFocus(null)} className="rounded border px-2 py-1 text-xs hover:bg-slate-50">
+          Mostrando un solo contenido en la tabla · quitar filtro
+        </button>
+      )}
 
       <Card>
         <CardHeader>

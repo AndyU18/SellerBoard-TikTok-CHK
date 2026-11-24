@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import { api, type AccountRow, type Channel } from '@/lib/api'
+import { presetRange, type Preset } from '@/lib/format'
 
 /** Alcance de las pantallas: un canal y/o una tienda (cuenta). Se comparte entre todas las pantallas. */
 export type ChannelFilter = Channel | 'all'
@@ -14,22 +15,28 @@ interface Scope {
   channelParam: Channel | ''
   setChannel: (c: ChannelFilter) => void
   setAccount: (a: string) => void
+  /** Período global (lo usan las pantallas con gráficas); `range` ya viene como fechas ISO. */
+  preset: Preset
+  range: { start?: string; end?: string }
+  setPreset: (p: Preset) => void
 }
 
 const STORAGE_KEY = 'chk.scope'
 const ScopeContext = createContext<Scope | null>(null)
 
-function load(): { channel: ChannelFilter; account: string } {
+type Stored = { channel: ChannelFilter; account: string; preset: Preset }
+
+function load(): Stored {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const v = JSON.parse(raw)
-      return { channel: v.channel ?? 'all', account: v.account ?? '' }
+      return { channel: v.channel ?? 'all', account: v.account ?? '', preset: v.preset ?? '90d' }
     }
   } catch {
     /* sin almacenamiento: se usa el valor por defecto */
   }
-  return { channel: 'all', account: '' }
+  return { channel: 'all', account: '', preset: '90d' }
 }
 
 export function ScopeProvider({ children }: { children: ReactNode }) {
@@ -47,7 +54,7 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const save = useCallback((next: { channel: ChannelFilter; account: string }) => {
+  const save = useCallback((next: Stored) => {
     setState(next)
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
@@ -63,8 +70,11 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
       accounts,
       channelParam: state.channel === 'all' ? '' : state.channel,
       // Al cambiar de canal, la tienda elegida deja de aplicar (era de otro canal).
-      setChannel: (c) => save({ channel: c, account: '' }),
+      setChannel: (c) => save({ ...state, channel: c, account: '' }),
       setAccount: (a) => save({ ...state, account: a }),
+      preset: state.preset,
+      range: presetRange(state.preset),
+      setPreset: (p) => save({ ...state, preset: p }),
     }),
     [state, accounts, save],
   )

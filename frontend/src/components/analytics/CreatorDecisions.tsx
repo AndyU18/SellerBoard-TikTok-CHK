@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 
+import { BreakEvenBubble, type BreakEvenPoint } from '@/components/analytics/BreakEvenBubble'
 import { ErrorAlert, Hint, Kpi, PILL, Pill, Segmented, pct1 } from '@/components/analytics/ui'
+import { ChartCard, EmptyChart } from '@/components/charts/kit'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { analytics, type CreatorAction } from '@/lib/analytics'
@@ -15,6 +17,8 @@ const ACTION: Record<CreatorAction, { label: string; pill: string }> = {
   cut: { label: 'Dejar de enviar', pill: PILL.red },
 }
 
+const ACTION_COLOR: Record<CreatorAction, string> = { repeat: '#10b981', keep: '#3b82f6', wait: '#f59e0b', cut: '#ef4444' }
+
 const ORDER: CreatorAction[] = ['repeat', 'keep', 'wait', 'cut']
 
 /** Qué creadores repetir, esperar, observar o dejar de enviar. */
@@ -27,7 +31,34 @@ export function CreatorDecisions() {
   )
   const data = useAsync(() => analytics.creators(sc), [sc])
   const d = data.data
-  const rows = (d?.creators ?? []).filter((c) => action === 'all' || c.action === action)
+  const [focus, setFocus] = useState<string | null>(null)
+  const rows = (d?.creators ?? []).filter((c) => (action === 'all' || c.action === action) && (!focus || c.creator === focus))
+  const points = useMemo<BreakEvenPoint[]>(
+    () =>
+      (d?.creators ?? []).map((c) => ({
+        id: c.creator,
+        label: `@${c.creator} · ${ACTION[c.action].label}`,
+        x: c.sample_cost,
+        y: Math.max(0, c.profit),
+        z: Math.max(1, c.orders),
+        group: c.action,
+        extra: [
+          { label: 'Neto', value: money(c.net) },
+          { label: 'ROI', value: percent(c.roi) },
+        ],
+      })),
+    [d],
+  )
+  const csv = (d?.creators ?? []).map((c) => ({
+    creador: c.creator,
+    decision: ACTION[c.action].label,
+    muestras: c.samples,
+    costo_muestras: c.sample_cost,
+    ordenes: c.orders,
+    ventas: c.gmv,
+    utilidad: c.profit,
+    neto: c.net,
+  }))
 
   return (
     <section className="space-y-4">
@@ -51,6 +82,36 @@ export function CreatorDecisions() {
         {d?.summary.median_days_to_first_sale ?? '—'} días en su primera venta. Dejar de enviar a quienes no vendieron
         evitaría <strong>{money(d?.summary.avoidable_cost ?? 0)}</strong> en muestras.
       </p>
+
+      <ChartCard
+        title="Costo de la muestra vs retorno por creador"
+        subtitle="Sobre la diagonal el creador ya cubrió su muestra. Tamaño = órdenes, color = decisión. Clic en una burbuja para ver su fila."
+        csv={csv}
+        filename="creadores-costo-vs-retorno"
+      >
+        {data.loading && !d ? (
+          <EmptyChart>Cargando…</EmptyChart>
+        ) : (
+          <BreakEvenBubble
+            points={points}
+            groups={Object.fromEntries(ORDER.map((a) => [a, { label: ACTION[a].label, color: ACTION_COLOR[a] }]))}
+            xLabel="Costo de muestras"
+            yLabel="Utilidad generada"
+            zLabel="Órdenes"
+            format={money}
+            onPointClick={(p) => {
+              setAction('all')
+              setFocus(p.id)
+            }}
+          />
+        )}
+      </ChartCard>
+
+      {focus && (
+        <button type="button" onClick={() => setFocus(null)} className="rounded border px-2 py-1 text-xs hover:bg-slate-50">
+          Mostrando solo @{focus} · quitar filtro
+        </button>
+      )}
 
       <Segmented
         label="Acción"

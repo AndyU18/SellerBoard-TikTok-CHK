@@ -4,10 +4,15 @@ import { ChannelBadge } from '@/components/ChannelBadge'
 import { Callout, ErrorAlert, Hint, Kpi, NumberField, PILL, Pill, Segmented, pct1 } from '@/components/analytics/ui'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { HBarChart, type HBarRow } from '@/components/analytics/HBarChart'
+import { BubbleChart, type BubblePoint } from '@/components/charts/BubbleChart'
+import { ComboChart, type ComboSeries } from '@/components/charts/ComboChart'
+import { ChartCard, COLOR, EmptyChart, PALETTE, axisMoney, axisPct } from '@/components/charts/kit'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { CHANNEL_LABEL } from '@/lib/api'
+import { CHANNEL_LABEL, CHANNELS } from '@/lib/api'
 import { analytics, type FloorStatus } from '@/lib/analytics'
 import { count, money, tone } from '@/lib/format'
+import { rangeDays } from '@/lib/periodDays'
 import { useScope } from '@/lib/scope'
 import { useAsync } from '@/lib/useAsync'
 
@@ -20,16 +25,11 @@ const STATUS: Record<FloorStatus, { label: string; pill: string }> = {
   insufficient: { label: 'Pocas ventas', pill: PILL.slate },
 }
 
-const WINDOWS = [
-  { value: '30', label: '30 días' },
-  { value: '60', label: '60 días' },
-  { value: '90', label: '90 días' },
-]
-
 export function Pricing() {
   const scope = useScope()
   const [tab, setTab] = useState<'floor' | 'parity'>('floor')
-  const [days, setDays] = useState(60)
+  const days = rangeDays(scope.range)
+  const [selected, setSelected] = useState<string | null>(null)
   const [margin, setMargin] = useState(0.15)
   const [status, setStatus] = useState<FloorStatus | 'all'>('all')
   const [search, setSearch] = useState('')
@@ -54,12 +54,59 @@ export function Pricing() {
   }, [floor.data, status, search])
   const sm = floor.data?.summary
 
+  const bubbles = useMemo<BubblePoint[]>(
+    () =>
+      (floor.data?.rows ?? [])
+        .filter((r) => r.realized_price != null && r.margin != null && r.units > 0)
+        .map((r) => ({
+          id: `${r.channel}-${r.sku}`,
+          label: `${r.product_name ?? r.sku} (${CHANNEL_LABEL[r.channel]})`,
+          x: r.realized_price as number,
+          y: r.margin as number,
+          z: r.units * (r.realized_price as number),
+          group: CHANNEL_LABEL[r.channel],
+        })),
+    [floor.data],
+  )
+  const gaps = useMemo<HBarRow[]>(
+    () =>
+      (floor.data?.rows ?? [])
+        .filter((r) => r.realized_price != null && r.break_even_price != null)
+        .map((r) => ({
+          id: `${r.channel}-${r.sku}`,
+          label: `${r.product_name ?? r.sku}`.slice(0, 28),
+          gap: (r.realized_price as number) - (r.break_even_price as number),
+        }))
+        .sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap))
+        .slice(0, 15),
+    [floor.data],
+  )
+  const picked = (floor.data?.rows ?? []).find((r) => `${r.channel}-${r.sku}` === selected) ?? null
+  const parityRows = useMemo(
+    () =>
+      (parity.data?.rows ?? []).slice(0, 12).map((r) => ({
+        name: (r.product_name ?? r.base_sku).slice(0, 18),
+        ...Object.fromEntries(r.channels.map((c) => [c.channel, c.realized_price])),
+      })),
+    [parity.data],
+  )
+  const parityChannels = CHANNELS.filter((c) => (parity.data?.rows ?? []).some((r) => r.channels.some((x) => x.channel === c)))
+  const paritySeries: ComboSeries[] = parityChannels.map((c) => ({
+    key: c,
+    label: CHANNEL_LABEL[c],
+    type: 'bar',
+    color: PALETTE[CHANNELS.indexOf(c) % PALETTE.length],
+    format: money,
+  }))
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Precios</h1>
+        <div>
+          <h1 className="text-2xl font-semibold">Precios</h1>
+          <p className="text-muted-foreground text-xs">Período del filtro de arriba: últimos {days} días.</p>
+        </div>
         <div className="flex flex-wrap items-end gap-4">
-          <Segmented label="Ventana" value={String(days)} options={WINDOWS} onChange={(v) => setDays(Number(v))} />
           {tab === 'floor' && (
             <NumberField
               label="Margen meta"
@@ -112,6 +159,78 @@ export function Pricing() {
               className={(sm?.profit_gap_total ?? 0) > 0 ? 'text-amber-600' : ''}
             />
           </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <ChartCard
+              title="Precio cobrado vs. margen por producto"
+              subtitle={`Tamaño = ventas, color = canal. La línea marca el margen meta (${Math.round(margin * 100)} %). Clic en una burbuja para ver el detalle.`}
+              filename="precio-vs-margen"
+              csv={bubbles.map((b) => ({ producto: b.label, precio_cobrado: b.x, margen: b.y, ventas: b.z }))}
+            >
+              {floor.loading && !floor.data ? (
+                <EmptyChart>Cargando…</EmptyChart>
+              ) : (
+                <BubbleChart
+                  points={bubbles}
+                  xLabel="Precio cobrado"
+                  yLabel="Margen"
+                  zLabel="Ventas"
+                  xFormat={axisMoney}
+                  yFormat={axisPct}
+                  zFormat={money}
+                  yRef={margin}
+                  onPointClick={(p) => setSelected(p.id)}
+                />
+              )}
+            </ChartCard>
+            <ChartCard
+              title="Brecha entre precio cobrado y precio mínimo"
+              subtitle="Por unidad: verde = sobra sobre el equilibrio, rojo = se vende por debajo. Clic en una barra para ver el detalle."
+              filename="brecha-precio-minimo"
+              csv={gaps.map((g) => ({ producto: g.label, brecha_por_unidad: g.gap }))}
+            >
+              {floor.loading && !floor.data ? (
+                <EmptyChart>Cargando…</EmptyChart>
+              ) : (
+                <HBarChart
+                  rows={gaps}
+                  series={[{ key: 'gap', label: 'Precio cobrado − equilibrio' }]}
+                  format={money}
+                  refLine={0}
+                  rowColor={(r) => (Number(r.gap) < 0 ? COLOR.bad : COLOR.good)}
+                  selectedId={selected}
+                  onRowClick={(r) => setSelected(r.id)}
+                />
+              )}
+            </ChartCard>
+          </div>
+          {picked && (
+            <Card>
+              <CardContent className="space-y-2 pt-4 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <strong>{picked.product_name ?? picked.sku}</strong>
+                    <span className="text-muted-foreground text-xs">{picked.sku}</span>
+                    <ChannelBadge channel={picked.channel} />
+                    <Pill label={STATUS[picked.status].label} className={STATUS[picked.status].pill} />
+                  </div>
+                  <button type="button" className="text-muted-foreground text-xs underline" onClick={() => setSelected(null)}>
+                    Cerrar
+                  </button>
+                </div>
+                <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-4">
+                  <span>Precio de lista: <strong>{money(picked.list_price)}</strong></span>
+                  <span>Precio cobrado: <strong>{money(picked.realized_price)}</strong></span>
+                  <span>Equilibrio: <strong>{money(picked.break_even_price)}</strong></span>
+                  <span>Precio meta: <strong>{money(picked.target_price)}</strong></span>
+                  <span>Costo unitario: <strong>{money(picked.cogs_unit)}</strong></span>
+                  <span>Envío por unidad: <strong>{money(picked.shipping_unit)}</strong></span>
+                  <span>Comisión: <strong>{pct1(picked.fee_rate)}</strong></span>
+                  <span>Utilidad por unidad: <strong className={tone(picked.unit_profit)}>{money(picked.unit_profit)}</strong></span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <div className="flex flex-wrap items-end gap-4">
             <Input
@@ -213,6 +332,27 @@ export function Pricing() {
               className={(parity.data?.summary.with_gap ?? 0) > 0 ? 'text-amber-600' : ''}
             />
           </div>
+
+          <ChartCard
+            title="Precio cobrado por canal (mismo producto)"
+            subtitle="Los 12 productos con mayor brecha. Apaga canales con la leyenda."
+            filename="paridad-precios"
+            csv={(parity.data?.rows ?? []).flatMap((r) =>
+              r.channels.map((c) => ({
+                producto: r.product_name ?? r.base_sku,
+                canal: CHANNEL_LABEL[c.channel],
+                precio_cobrado: c.realized_price,
+                utilidad_por_unidad: c.unit_profit,
+                unidades: c.units,
+              })),
+            )}
+          >
+            {parity.loading && !parity.data ? (
+              <EmptyChart>Cargando…</EmptyChart>
+            ) : (
+              <ComboChart data={parityRows} xKey="name" series={paritySeries} leftFormat={axisMoney} height={300} />
+            )}
+          </ChartCard>
           <Card>
             <CardContent className="overflow-x-auto pt-4">
               <Table>

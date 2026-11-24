@@ -1,12 +1,16 @@
 import { useMemo, useState } from 'react'
 
 import { ErrorAlert, Hint } from '@/components/analytics/ui'
+import { ComboChart } from '@/components/charts/ComboChart'
+import { Donut } from '@/components/charts/Donut'
+import { ChartCard, EmptyChart } from '@/components/charts/kit'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { count, money } from '@/lib/format'
 import { redo } from '@/lib/redo'
+import { useScope } from '@/lib/scope'
 import { useAsync } from '@/lib/useAsync'
 
 const PAGE = 50
@@ -20,9 +24,15 @@ export function RedoCharges() {
   const [subtype, setSubtype] = useState('')
   const [text, setText] = useState('')
   const [q, setQ] = useState('')
-  const [start, setStart] = useState('')
-  const [end, setEnd] = useState('')
-  const [page, setPage] = useState(0)
+  // El período lo da el filtro global; al cambiarlo la paginación vuelve a la primera página.
+  const { range } = useScope()
+  const start = range.start ?? ''
+  const end = range.end ?? ''
+  const scopeKey = `${start}|${end}`
+  const [pageState, setPageState] = useState({ key: scopeKey, page: 0 })
+  const page = pageState.key === scopeKey ? pageState.page : 0
+  const setPage = (v: number | ((p: number) => number)) =>
+    setPageState({ key: scopeKey, page: typeof v === 'function' ? v(page) : v })
 
   const filters = useMemo(
     () => ({ subtype, q, start, end, limit: PAGE, offset: page * PAGE }),
@@ -32,6 +42,7 @@ export function RedoCharges() {
   const d = data.data
   const rows = d?.rows ?? []
   const total = d?.total ?? 0
+  const slices = (d?.by_subtype ?? []).map((x) => ({ id: x.subtype, label: x.label, value: x.amount }))
   const pages = Math.max(1, Math.ceil(total / PAGE))
 
   const apply = <T,>(set: (v: T) => void) => (v: T) => {
@@ -90,22 +101,12 @@ export function RedoCharges() {
               onBlur={() => text.trim() !== q && apply(setQ)(text.trim())}
             />
           </form>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-muted-foreground text-xs">Desde</span>
-            <Input type="date" className="h-9" value={start} onChange={(e) => apply(setStart)(e.target.value)} />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-muted-foreground text-xs">Hasta</span>
-            <Input type="date" className="h-9" value={end} onChange={(e) => apply(setEnd)(e.target.value)} />
-          </label>
           <Button
             variant="outline"
             onClick={() => {
               setSubtype('')
               setText('')
               setQ('')
-              setStart('')
-              setEnd('')
               setPage(0)
             }}
           >
@@ -116,6 +117,43 @@ export function RedoCharges() {
           </Button>
         </CardContent>
       </Card>
+
+      <div className="text-muted-foreground text-xs">
+        Período global: {start ? `${start} a ${end}` : 'todo el historial'} (se cambia arriba, en la barra de período).
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <ChartCard
+          title="Por tipo de cargo (filtro actual)"
+          subtitle="Suma de los cargos de todo el filtro, no solo de la página. Clic en una porción para filtrar por ese tipo."
+          filename="redo-cargos-por-tipo"
+          csv={(d?.by_subtype ?? []).map((x) => ({ Tipo: x.label, Cargos: x.count, Monto: x.amount }))}
+        >
+          {slices.length === 0 ? (
+            <EmptyChart>{data.loading ? 'Cargando…' : 'No hay cargos con estos filtros.'}</EmptyChart>
+          ) : (
+            <Donut slices={slices} format={money} centerLabel="monto" onSliceClick={(sl) => apply(setSubtype)(subtype === sl.id ? '' : sl.id)} />
+          )}
+        </ChartCard>
+        <ChartCard
+          title="Cargos por día (filtro actual)"
+          subtitle="Monto diario de todo el filtro."
+          filename="redo-cargos-por-dia"
+          csv={(d?.by_day ?? []).map((x) => ({ Fecha: x.date, Monto: x.amount }))}
+        >
+          {(d?.by_day.length ?? 0) === 0 ? (
+            <EmptyChart>{data.loading ? 'Cargando…' : 'No hay cargos con estos filtros.'}</EmptyChart>
+          ) : (
+            <ComboChart
+              data={d?.by_day ?? []}
+              xKey="date"
+              height={240}
+              xFormat={(v) => String(v).slice(5)}
+              series={[{ key: 'amount', label: 'Monto', type: 'bar', color: '#2563eb', format: money }]}
+            />
+          )}
+        </ChartCard>
+      </div>
 
       <div className="text-sm">
         <strong>{count(total)}</strong> cargos · total filtrado{' '}

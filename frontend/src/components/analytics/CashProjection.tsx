@@ -1,30 +1,58 @@
-import { useMemo } from 'react'
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { useMemo, useState } from 'react'
+import { Area, Bar, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { Callout, ErrorAlert, Hint, Kpi } from '@/components/analytics/ui'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { axisMoney, ChartCard, EmptyChart, TipBox } from '@/components/charts/kit'
 import { analytics } from '@/lib/analytics'
+import { shortDate } from '@/lib/chartdata_dinero'
 import { money } from '@/lib/format'
 import { useScope } from '@/lib/scope'
 import { useAsync } from '@/lib/useAsync'
 
 const HORIZON = 14
 
-/** Dinero que se espera recibir en los próximos días y comparación con la utilidad. */
-export function CashProjection() {
+const SERIES = [
+  { key: 'known', label: 'Ya liquidado (por día)', color: '#16a34a', kind: 'bar' },
+  { key: 'projected', label: 'Por el ritmo reciente (por día)', color: '#86efac', kind: 'bar' },
+  { key: 'cumKnown', label: 'Acumulado ya liquidado', color: '#3b82f6', kind: 'area' },
+  { key: 'cumExpected', label: 'Acumulado esperado (base)', color: '#f59e0b', kind: 'line' },
+] as const
+
+/**
+ * Dinero que se espera recibir en los próximos días: barras diarias, saldo acumulado (línea) contra lo ya
+ * liquidado (área) y marcador de la próxima fecha de liquidación (`payoutDate`).
+ * El backend entrega un solo escenario (base), por eso no hay banda optimista/pesimista.
+ */
+export function CashProjection({ payoutDate }: { payoutDate?: string | null }) {
   const scope = useScope()
   const sc = useMemo(
     () => ({ channel: scope.channelParam, account: scope.account }),
     [scope.channelParam, scope.account],
   )
   const data = useAsync(() => analytics.cashProjection(sc, HORIZON), [sc])
+  const [hidden, setHidden] = useState<Set<string>>(new Set())
   const d = data.data
   const sm = d?.summary
-  const chart = (d?.series ?? []).map((p) => ({
-    date: p.date.slice(5),
-    'Ya liquidado': Math.round(p.known),
-    'Por el ritmo reciente': Math.round(p.projected),
-  }))
+  const chart = useMemo(
+    () =>
+      (d?.series ?? []).map((p, i, all) => ({
+        date: p.date,
+        known: Math.round(p.known),
+        projected: Math.round(p.projected),
+        cumKnown: Math.round(all.slice(0, i + 1).reduce((acc, x) => acc + x.known, 0)),
+        cumExpected: Math.round(p.cumulative),
+      })),
+    [d],
+  )
+  const marker = payoutDate && chart.some((r) => r.date === payoutDate) ? payoutDate : null
+  const toggle = (k: string) =>
+    setHidden((prev) => {
+      const next = new Set(prev)
+      if (next.has(k)) next.delete(k)
+      else next.add(k)
+      return next
+    })
+  const label = (k: string) => SERIES.find((s) => s.key === k)?.label ?? k
 
   return (
     <section className="space-y-4">
@@ -50,30 +78,60 @@ export function CashProjection() {
           hint={`la utilidad de esos canales fue ${money(sm?.profit_30d ?? 0)}`}
         />
       </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>Depósitos esperados por día</CardTitle>
-        </CardHeader>
-        <CardContent className="h-64">
-          {chart.length === 0 ? (
-            <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
-              {data.loading ? 'Cargando…' : 'Sin proyección.'}
+      <ChartCard
+        title="Saldo proyectado y depósitos esperados"
+        subtitle={`Barras: depósitos por día. Línea: acumulado esperado (eje derecho) contra lo ya liquidado (área).${marker ? ' La línea punteada marca la próxima liquidación.' : ''}`}
+        csv={chart.map((r) => ({
+          fecha: r.date,
+          ya_liquidado: r.known,
+          por_ritmo_reciente: r.projected,
+          acumulado_liquidado: r.cumKnown,
+          acumulado_esperado: r.cumExpected,
+        }))}
+        filename="flujo-de-caja-proyeccion"
+      >
+        {chart.length === 0 ? (
+          <EmptyChart>{data.loading ? 'Cargando…' : 'Sin proyección.'}</EmptyChart>
+        ) : (
+          <div>
+            <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+              {SERIES.map((s) => (
+                <button key={s.key} type="button" aria-pressed={!hidden.has(s.key)} onClick={() => toggle(s.key)} className={`flex items-center gap-1.5 ${hidden.has(s.key) ? 'opacity-40' : ''}`}>
+                  <span className={`inline-block size-3 ${s.kind === 'bar' ? 'rounded-sm' : 'rounded-full'}`} style={{ background: s.color }} />
+                  {s.label}
+                </button>
+              ))}
             </div>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chart}>
+            <ResponsiveContainer width="100%" height={320}>
+              <ComposedChart data={chart} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="date" />
-                <YAxis tickFormatter={(v: number) => `$${v.toLocaleString('en-US')}`} width={72} />
-                <Tooltip formatter={(v) => money(Number(v))} />
-                <Legend />
-                <Bar dataKey="Ya liquidado" stackId="cash" fill="#16a34a" />
-                <Bar dataKey="Por el ritmo reciente" stackId="cash" fill="#86efac" />
-              </BarChart>
+                <XAxis dataKey="date" tickFormatter={shortDate} tick={{ fontSize: 11 }} />
+                <YAxis yAxisId="left" tickFormatter={axisMoney} tick={{ fontSize: 11 }} width={56} />
+                <YAxis yAxisId="right" orientation="right" tickFormatter={axisMoney} tick={{ fontSize: 11 }} width={56} />
+                <Tooltip
+                  content={({ active, payload, label: l }) =>
+                    active && payload?.length ? (
+                      <TipBox
+                        title={String(l)}
+                        rows={payload.map((p) => ({ label: p.name ?? label(String(p.dataKey)), value: money(Number(p.value)), color: String(p.color ?? p.stroke ?? '') }))}
+                      />
+                    ) : null
+                  }
+                />
+                {!hidden.has('known') && <Bar yAxisId="left" dataKey="known" name={label('known')} stackId="day" fill="#16a34a" />}
+                {!hidden.has('projected') && <Bar yAxisId="left" dataKey="projected" name={label('projected')} stackId="day" fill="#86efac" />}
+                {!hidden.has('cumKnown') && <Area yAxisId="right" type="monotone" dataKey="cumKnown" name={label('cumKnown')} stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.15} />}
+                {!hidden.has('cumExpected') && (
+                  <Line yAxisId="right" type="monotone" dataKey="cumExpected" name={label('cumExpected')} stroke="#f59e0b" strokeWidth={2} dot={{ r: 3, fill: '#fff', strokeWidth: 2 }} />
+                )}
+                {marker && (
+                  <ReferenceLine yAxisId="left" x={marker} stroke="#64748b" strokeDasharray="4 4" label={{ value: 'Próxima liquidación', position: 'insideTopLeft', fontSize: 11, fill: '#475569' }} />
+                )}
+              </ComposedChart>
             </ResponsiveContainer>
-          )}
-        </CardContent>
-      </Card>
+          </div>
+        )}
+      </ChartCard>
       <Hint>
         “Ya liquidado” son estados de cuenta cerrados que aún no se depositan, en su fecha de pago. “Por el ritmo
         reciente” supone que lo que se liquidó por día en las últimas 4 semanas sigue igual y se paga con el mismo

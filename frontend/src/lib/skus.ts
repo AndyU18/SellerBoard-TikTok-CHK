@@ -67,6 +67,8 @@ export interface QualityCheck {
   impact: number | null
   detail: string
   action: { page: QualityPage; label: string }
+  /** SKU afectados (hasta 50); vacío si la revisión no es por SKU. */
+  skus?: string[]
 }
 
 export interface DataQualityResponse {

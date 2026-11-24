@@ -1,6 +1,9 @@
 import { useMemo, useState } from 'react'
 
 import { ErrorAlert, Hint, Kpi, NumberField, PILL, Pill, pct1 } from '@/components/analytics/ui'
+import { Donut } from '@/components/charts/Donut'
+import { ChartCard } from '@/components/charts/kit'
+import { AsyncBody, rangeDays } from '@/components/operacion/shared'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { analytics } from '@/lib/analytics'
@@ -16,14 +19,16 @@ export function ReturnsCost() {
     () => ({ channel: scope.channelParam, account: scope.account }),
     [scope.channelParam, scope.account],
   )
-  const data = useAsync(() => analytics.returnsCost(sc, 90, lossRate), [sc, lossRate])
+  const days = rangeDays({ start: scope.range.start, end: scope.range.end })
+  const data = useAsync(() => analytics.returnsCost(sc, days, lossRate), [sc, days, lossRate])
   const d = data.data
   const sm = d?.summary
+  const costSlices = (d?.by_reason ?? []).map((r) => ({ id: r.reason, label: r.reason, value: r.real_cost }))
 
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h2 className="text-xl font-semibold">Costo real de las devoluciones (90 días)</h2>
+        <h2 className="text-xl font-semibold">Costo real de las devoluciones ({days} días)</h2>
         <NumberField
           label="Pérdida si el motivo no se reconoce"
           value={Math.round(lossRate * 100)}
@@ -45,6 +50,16 @@ export function ReturnsCost() {
           className={(sm?.real_cost ?? 0) > 0 ? 'text-red-600' : ''}
         />
       </div>
+      <ChartCard
+        title="Costo real por motivo"
+        subtitle="Envío perdido + producto perdido, repartido por motivo de devolución."
+        csv={(d?.by_reason ?? []).map((r) => ({ motivo: r.reason, casos: r.cases, envio_perdido: r.shipping_lost, producto_perdido: r.product_lost, costo_real: r.real_cost }))}
+        filename="costo-devoluciones-por-motivo"
+      >
+        <AsyncBody state={data} empty={costSlices.every((s) => s.value <= 0)}>
+          <Donut slices={costSlices} format={money} centerLabel="costo real" />
+        </AsyncBody>
+      </ChartCard>
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>
           <CardHeader>
