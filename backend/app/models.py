@@ -187,6 +187,27 @@ class Settlement(Base):
     net_payout: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
 
 
+class SettlementFee(Base):
+    """Un concepto de una transacción de liquidación (comisión, descuento, envío...). Montos firmados."""
+
+    __tablename__ = "settlement_fee"
+    __table_args__ = (
+        UniqueConstraint("account_id", "statement_id", "transaction_id", "concept"),
+        {"schema": "sales"},
+    )
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True)
+    settlement_id: Mapped[int] = mapped_column(ForeignKey("sales.settlement.id"), index=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("sales.account.id"))
+    statement_id: Mapped[str] = mapped_column(String)
+    transaction_id: Mapped[str] = mapped_column(String)
+    external_order_id: Mapped[str | None] = mapped_column(String, index=True)
+    concept: Mapped[str] = mapped_column(String, index=True)
+    kind: Mapped[str] = mapped_column(String)  # revenue | fee | shipping | adjustment | memo
+    amount: Mapped[Decimal] = mapped_column(Money)
+    fee_date: Mapped[date | None] = mapped_column(Date)
+
+
 class ReturnCase(Base):
     """Devolución o cancelación de la plataforma (RMA). Ver ..._returns_and_shipments.sql."""
 

@@ -40,6 +40,7 @@ from app.ops_data import (
     upsert_traffic,
     upsert_video_performance,
 )
+from app.settlement_fees import build_settlement_fees, upsert_settlement_fees
 from app.settlements import upsert_settlements
 
 CHANNEL = "tiktok_shop"
@@ -213,6 +214,8 @@ class Window:
 
     orders: list[dict[str, Any]] = field(default_factory=list)
     transactions: list[dict[str, Any]] = field(default_factory=list)
+    # Todas las transacciones de cada liquidación (con `statement_id`), para el desglose por concepto.
+    fee_transactions: list[dict[str, Any]] = field(default_factory=list)
     statements: list[dict[str, Any]] = field(default_factory=list)
     returns: list[dict[str, Any]] = field(default_factory=list)
     cancellations: list[dict[str, Any]] = field(default_factory=list)
@@ -258,6 +261,7 @@ def fetch_window(client: TikTokShopClient, days: int) -> Window:
     w.statements = list(client.iter_statements(start, end))
     for statement in w.statements:
         for tx in client.iter_statement_transactions(statement["id"]):
+            w.fee_transactions.append({**tx, "statement_id": statement["id"]})
             if tx.get("order_id") in window:
                 w.transactions.append(tx)
     return w
@@ -274,6 +278,9 @@ async def sync_tiktok_shop(
     imported = await import_orders(session, frame) if frame.height else ImportResult()
     stats["settlements"] = await upsert_settlements(
         session, CHANNEL, account, build_settlements(w.statements)
+    )
+    stats["settlement_fees"] = await upsert_settlement_fees(
+        session, CHANNEL, account, build_settlement_fees(w.fee_transactions)
     )
     cases = build_return_cases(w.returns, w.cancellations, sku_by_order_line(w.orders))
     stats["return_cases"] = await upsert_return_cases(session, CHANNEL, account, cases)

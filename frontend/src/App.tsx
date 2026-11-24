@@ -12,6 +12,7 @@ import {
   Gift,
   LayoutDashboard,
   Download,
+  Layers,
   Link2,
   ListOrdered,
   LogOut,
@@ -26,9 +27,11 @@ import {
   ScrollText,
   Ship,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   Tag,
   TrendingUp,
+  Trophy,
   Truck,
   Undo2,
   Upload,
@@ -70,7 +73,10 @@ import { Products } from '@/pages/Products'
 import { Promotions } from '@/pages/Promotions'
 import { PageHeader } from '@/components/PageHeader'
 import { Ads } from '@/pages/Ads'
+import { CreatorProfit } from '@/pages/CreatorProfit'
 import { OrderProfit } from '@/pages/OrderProfit'
+import { SettlementBreakdown } from '@/pages/SettlementBreakdown'
+import { Simulator } from '@/pages/Simulator'
 import { RedoCorrections } from '@/pages/RedoCorrections'
 import { Reconciliation } from '@/pages/Reconciliation'
 import { RedoBilling } from '@/pages/RedoBilling'
@@ -105,6 +111,9 @@ type Page =
   | 'reconciliation'
   | 'ads'
   | 'orderProfit'
+  | 'simulator'
+  | 'settlements'
+  | 'creatorProfit'
   | 'redoCorrections'
   | 'redo'
   | 'redoCosts'
@@ -137,6 +146,7 @@ const NAV: NavItem[] = [
   { group: 'Rentabilidad', id: 'pricing', label: 'Precios', icon: <DollarSign className={icon} />, permission: 'profit.view' },
   { group: 'Rentabilidad', id: 'tariffs', label: 'Aranceles', icon: <Ship className={icon} />, permission: 'profit.view' },
   { group: 'Rentabilidad', id: 'orderProfit', label: 'Utilidad por orden', icon: <ReceiptText className={icon} />, permission: 'profit.view' },
+  { group: 'Rentabilidad', id: 'simulator', label: 'Simulador ¿y si…?', icon: <SlidersHorizontal className={icon} />, permission: 'profit.view' },
   { group: 'Rentabilidad', id: 'ads', label: 'Publicidad (TikTok Ads)', icon: <Megaphone className={icon} />, permission: 'profit.view' },
   { group: 'Rentabilidad', id: 'promotions', label: 'Promociones', icon: <Tag className={icon} />, permission: 'profit.view' },
   { group: 'Operación', id: 'inventory', label: 'Inventario', icon: <Warehouse className={icon} />, permission: 'profit.view' },
@@ -145,12 +155,14 @@ const NAV: NavItem[] = [
   { group: 'Operación', id: 'returns', label: 'Devoluciones', icon: <Undo2 className={icon} />, permission: 'profit.view' },
   { group: 'Operación', id: 'dayparting', label: 'Horas pico', icon: <Clock className={icon} />, permission: 'profit.view' },
   { group: 'Dinero', id: 'cashflow', label: 'Flujo de caja', icon: <Banknote className={icon} />, permission: 'profit.view' },
+  { group: 'Dinero', id: 'settlements', label: 'Desglose de liquidación', icon: <Layers className={icon} />, permission: 'profit.view' },
   { group: 'Dinero', id: 'reconciliation', label: 'Conciliación', icon: <Scale className={icon} />, permission: 'profit.view' },
   { group: 'Redo (etiquetas)', id: 'redo', label: 'Resumen de Redo', icon: <PackageCheck className={icon} />, permission: 'profit.view' },
   { group: 'Redo (etiquetas)', id: 'redoCosts', label: 'Costo por orden', icon: <Calculator className={icon} />, permission: 'profit.view' },
   { group: 'Redo (etiquetas)', id: 'redoCorrections', label: 'Correcciones por SKU', icon: <Ruler className={icon} />, permission: 'profit.view' },
   { group: 'Redo (etiquetas)', id: 'redoBilling', label: 'Facturación y saldo', icon: <Wallet className={icon} />, permission: 'profit.view' },
   { group: 'Redo (etiquetas)', id: 'redoCharges', label: 'Libro de cargos', icon: <ListOrdered className={icon} />, permission: 'profit.view' },
+  { group: 'Creadores y tráfico', id: 'creatorProfit', label: 'Rentabilidad por creador', icon: <Trophy className={icon} />, permission: 'profit.view' },
   { group: 'Creadores y tráfico', id: 'samples', label: 'Muestras', icon: <Gift className={icon} />, permission: 'profit.view' },
   { group: 'Creadores y tráfico', id: 'creatives', label: 'Creativos', icon: <Video className={icon} />, permission: 'profit.view' },
   { group: 'Creadores y tráfico', id: 'funnel', label: 'Embudo', icon: <Filter className={icon} />, permission: 'profit.view' },
@@ -316,6 +328,9 @@ export default function App() {
           {current === 'reconciliation' && <Reconciliation />}
           {current === 'ads' && <Ads />}
           {current === 'orderProfit' && <OrderProfit />}
+          {current === 'simulator' && <Simulator />}
+          {current === 'settlements' && <SettlementBreakdown />}
+          {current === 'creatorProfit' && <CreatorProfit />}
           {current === 'redoCorrections' && <RedoCorrections />}
           {current === 'redo' && <RedoOverview />}
           {current === 'redoCosts' && <RedoCosts />}
