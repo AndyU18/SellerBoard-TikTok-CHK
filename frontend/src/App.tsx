@@ -20,6 +20,8 @@ import {
   Package,
   PackageCheck,
   Radio,
+  ReceiptText,
+  Ruler,
   Scale,
   ScrollText,
   Ship,
@@ -68,6 +70,8 @@ import { Products } from '@/pages/Products'
 import { Promotions } from '@/pages/Promotions'
 import { PageHeader } from '@/components/PageHeader'
 import { Ads } from '@/pages/Ads'
+import { OrderProfit } from '@/pages/OrderProfit'
+import { RedoCorrections } from '@/pages/RedoCorrections'
 import { Reconciliation } from '@/pages/Reconciliation'
 import { RedoBilling } from '@/pages/RedoBilling'
 import { RedoCharges } from '@/pages/RedoCharges'
@@ -100,6 +104,8 @@ type Page =
   | 'cashflow'
   | 'reconciliation'
   | 'ads'
+  | 'orderProfit'
+  | 'redoCorrections'
   | 'redo'
   | 'redoCosts'
   | 'redoBilling'
@@ -130,6 +136,7 @@ const NAV: NavItem[] = [
   { group: 'Rentabilidad', id: 'versus', label: 'Versus', icon: <GitCompareArrows className={icon} />, permission: 'profit.view' },
   { group: 'Rentabilidad', id: 'pricing', label: 'Precios', icon: <DollarSign className={icon} />, permission: 'profit.view' },
   { group: 'Rentabilidad', id: 'tariffs', label: 'Aranceles', icon: <Ship className={icon} />, permission: 'profit.view' },
+  { group: 'Rentabilidad', id: 'orderProfit', label: 'Utilidad por orden', icon: <ReceiptText className={icon} />, permission: 'profit.view' },
   { group: 'Rentabilidad', id: 'ads', label: 'Publicidad (TikTok Ads)', icon: <Megaphone className={icon} />, permission: 'profit.view' },
   { group: 'Rentabilidad', id: 'promotions', label: 'Promociones', icon: <Tag className={icon} />, permission: 'profit.view' },
   { group: 'Operación', id: 'inventory', label: 'Inventario', icon: <Warehouse className={icon} />, permission: 'profit.view' },
@@ -141,6 +148,7 @@ const NAV: NavItem[] = [
   { group: 'Dinero', id: 'reconciliation', label: 'Conciliación', icon: <Scale className={icon} />, permission: 'profit.view' },
   { group: 'Redo (etiquetas)', id: 'redo', label: 'Resumen de Redo', icon: <PackageCheck className={icon} />, permission: 'profit.view' },
   { group: 'Redo (etiquetas)', id: 'redoCosts', label: 'Costo por orden', icon: <Calculator className={icon} />, permission: 'profit.view' },
+  { group: 'Redo (etiquetas)', id: 'redoCorrections', label: 'Correcciones por SKU', icon: <Ruler className={icon} />, permission: 'profit.view' },
   { group: 'Redo (etiquetas)', id: 'redoBilling', label: 'Facturación y saldo', icon: <Wallet className={icon} />, permission: 'profit.view' },
   { group: 'Redo (etiquetas)', id: 'redoCharges', label: 'Libro de cargos', icon: <ListOrdered className={icon} />, permission: 'profit.view' },
   { group: 'Creadores y tráfico', id: 'samples', label: 'Muestras', icon: <Gift className={icon} />, permission: 'profit.view' },
@@ -307,6 +315,8 @@ export default function App() {
           {current === 'cashflow' && <Cashflow />}
           {current === 'reconciliation' && <Reconciliation />}
           {current === 'ads' && <Ads />}
+          {current === 'orderProfit' && <OrderProfit />}
+          {current === 'redoCorrections' && <RedoCorrections />}
           {current === 'redo' && <RedoOverview />}
           {current === 'redoCosts' && <RedoCosts />}
           {current === 'redoBilling' && <RedoBilling />}

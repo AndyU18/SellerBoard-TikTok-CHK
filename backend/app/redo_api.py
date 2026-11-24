@@ -10,7 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import require
 from app.db import get_session
-from app.redo_analytics import redo_billing, redo_charges, redo_costs, redo_overview
+from app.redo_analytics import (
+    redo_billing,
+    redo_charges,
+    redo_corrections_by_sku,
+    redo_costs,
+    redo_overview,
+)
 
 router = APIRouter(prefix="/api/redo")
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -28,6 +34,12 @@ async def overview(session: SessionDep, days: Days = 90) -> dict:
 async def costs(session: SessionDep, days: Days = 90) -> dict:
     """Costo por orden: por canal, por estado de destino, distribución y órdenes más caras."""
     return await redo_costs(session, days=days)
+
+
+@router.get("/carrier-corrections", dependencies=VIEW)
+async def carrier_corrections(session: SessionDep, days: Days = 180) -> dict:
+    """Correcciones del carrier por SKU: detecta productos con peso o medidas mal declarados."""
+    return await redo_corrections_by_sku(session, days=days)
 
 
 @router.get("/billing", dependencies=VIEW)

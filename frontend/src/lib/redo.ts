@@ -162,7 +162,46 @@ export interface RedoChargesFilter {
   offset?: number
 }
 
+export interface RedoCorrectionReason {
+  reason: string
+  count: number
+  amount: number
+}
+
+export interface RedoSkuCorrection {
+  sku: string
+  name: string | null
+  shipped_orders: number
+  orders_with_correction: number
+  correction_rate: number
+  correction_amount: number
+  avg_correction: number | null
+  label_cost: number
+  correction_pct_of_labels: number | null
+  top_reasons: RedoCorrectionReason[]
+  flag: boolean
+  suggestion: string | null
+}
+
+export interface RedoCorrectionsResponse {
+  days: number
+  window: { start: string; end: string }
+  thresholds: { min_orders: number; min_rate: number }
+  summary: {
+    total_corrections: number
+    correction_count: number
+    flagged_skus: number
+    flagged_amount: number
+    label_cost: number
+    pct_of_labels: number | null
+    reasons: RedoCorrectionReason[]
+    unattributed: { amount: number; count: number }
+  }
+  skus: RedoSkuCorrection[]
+}
+
 export const redo = {
+  carrierCorrections: (days: number) => get<RedoCorrectionsResponse>('/api/redo/carrier-corrections', { days }),
   overview: (days: number) => get<RedoOverviewResponse>('/api/redo/overview', { days }),
   costs: (days: number) => get<RedoCostsResponse>('/api/redo/costs', { days }),
   billing: () => get<RedoBillingResponse>('/api/redo/billing'),

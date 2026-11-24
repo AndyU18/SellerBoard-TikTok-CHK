@@ -13,7 +13,13 @@ from app.connectors.redo import RedoClient, RedoError, RedoSettings, sync_redo
 from app.db import create_dev_schema, get_session, make_engine
 from app.main import app
 from app.models import Account, OrderLine, Product, RedoCharge, SalesOrder
-from app.redo_analytics import redo_billing, redo_charges, redo_costs, redo_overview
+from app.redo_analytics import (
+    redo_billing,
+    redo_charges,
+    redo_corrections_by_sku,
+    redo_costs,
+    redo_overview,
+)
 from app.redo_ops import upsert_bills, upsert_charges, upsert_topups
 
 TODAY = date(2026, 11, 20)
@@ -167,6 +173,89 @@ async def test_charges_filters_and_paging(maker):
         {"subtype": "Surcharge", "label": "Correcciones del carrier", "count": 1, "amount": 3.0, "is_cost": True}
     ]
     assert surcharges["by_day"] == [{"date": "2026-11-12", "amount": 3.0}]
+
+
+@pytest.mark.asyncio
+async def test_corrections_by_sku_flags_and_splits(maker):
+    charges = []
+    for i in range(1, 7):
+        charges.append(_charge(f"xl{i}", "ChargeLabel", 10, "2026-11-10", f"X{i}"))
+    charges.append(_charge("xs1", "Surcharge", 5, "2026-11-12", "X1", "Rate change"))
+    charges.append(_charge("xs2", "Surcharge", 7, "2026-11-12", "X2", "Rate change"))
+    charges.append(_charge("ml", "ChargeLabel", 20, "2026-11-10", "M1"))
+    charges.append(_charge("ms", "Surcharge", 4, "2026-11-12", "M1", "Additional Handling"))
+    charges.append(_charge("zs", "Surcharge", 9, "2026-11-12", "ZZ", "Rate change"))
+    charges.append(_charge("old", "Surcharge", 50, "2026-01-01", "X3", "Rate change"))  # fuera de la ventana
+    async with maker() as s:
+        await upsert_charges(s, charges)
+        acc = Account(channel_code="walmart", name="walmart_us")
+        px, py = Product(sku="SKU-X", name="Producto X"), Product(sku="SKU-Y", name="Producto Y")
+        s.add_all([acc, px, py])
+        await s.flush()
+
+        async def sell(ext, lines):
+            order = SalesOrder(account_id=acc.id, external_order_id=ext, order_date=date(2026, 11, 9), ship_state="Texas")
+            s.add(order)
+            await s.flush()
+            for prod, gross in lines:
+                s.add(
+                    OrderLine(
+                        order_id=order.id,
+                        account_id=acc.id,
+                        order_date=date(2026, 11, 9),
+                        product_id=prod.id,
+                        channel_sku=prod.sku,
+                        units=1,
+                        gross_sales=Decimal(gross),
+                        promo=Decimal(0),
+                    )
+                )
+
+        for i in range(1, 7):
+            await sell(f"X{i}", [(px, 40)])
+        await sell("M1", [(px, 75), (py, 25)])
+        for i in range(1, 7):
+            await upsert_charges(s, [_charge(f"yl{i}", "ChargeLabel", 8, "2026-11-10", f"Y{i}")])
+            await sell(f"Y{i}", [(py, 30)])
+        await s.commit()
+        res = await redo_corrections_by_sku(s, days=30, today=TODAY)
+
+    by = {r["sku"]: r for r in res["skus"]}
+    x, y = by["SKU-X"], by["SKU-Y"]
+    assert x["shipped_orders"] == 7 and x["orders_with_correction"] == 3
+    assert x["correction_rate"] == pytest.approx(3 / 7)
+    assert x["correction_amount"] == pytest.approx(5 + 7 + 3)  # 3 de los 4 de M1 (75% de la venta)
+    assert x["avg_correction"] == pytest.approx(5)
+    assert x["label_cost"] == pytest.approx(60 + 15)
+    assert x["correction_pct_of_labels"] == pytest.approx(15 / 75)
+    assert x["flag"] is True and "peso" in x["suggestion"]
+    assert x["top_reasons"][0]["reason"] == "Rate change" and x["top_reasons"][0]["count"] == 2
+    assert y["shipped_orders"] == 7 and y["orders_with_correction"] == 1 and y["correction_amount"] == pytest.approx(1)
+    assert y["flag"] is False and y["suggestion"] is None  # 1 de 7 = 14% < 15%
+    sm = res["summary"]
+    assert sm["total_corrections"] == pytest.approx(5 + 7 + 4 + 9 + 3)  # + la corrección de A1 del fixture
+    assert sm["flagged_skus"] == 1 and sm["flagged_amount"] == pytest.approx(15)
+    assert sm["unattributed"] == {"amount": 9.0, "count": 1}
+    assert sm["reasons"][0]["reason"] == "Rate change" and sm["reasons"][0]["count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_corrections_by_sku_empty_and_endpoint(maker):
+    async with maker() as s:
+        res = await redo_corrections_by_sku(s, days=30, today=date(2030, 1, 1))
+    assert res["skus"] == [] and res["summary"]["flagged_skus"] == 0 and res["summary"]["pct_of_labels"] is None
+
+    async def override():
+        async with maker() as s:
+            yield s
+
+    app.dependency_overrides[get_session] = override
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            assert (await client.get("/api/redo/carrier-corrections")).status_code == 200
+            assert (await client.get("/api/redo/carrier-corrections?days=3")).status_code == 422
+    finally:
+        app.dependency_overrides.clear()
 
 
 class FakeRedo:

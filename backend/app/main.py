@@ -20,6 +20,7 @@ from app.db import SessionLocal, init_db
 from app.export_api import router as export_router
 from app.notifications_api import router as notifications_router
 from app.notify import digest_loop
+from app.order_profit_api import router as order_profit_router
 from app.redo_api import router as redo_router
 from app.sku_api import router as sku_router
 from app.sync_jobs import auto_sync_loop
@@ -59,6 +60,7 @@ app.include_router(analytics_router)
 app.include_router(redo_router)
 app.include_router(ads_router)
 app.include_router(chartdata_dinero_router)
+app.include_router(order_profit_router)
 app.include_router(chartdata_pedidos_router)
 app.include_router(chartdata_productos_router)
 app.include_router(chartdata_resumen_router)

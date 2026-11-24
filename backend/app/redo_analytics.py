@@ -22,6 +22,7 @@ from app.importers.persist import _chunks
 from app.models import (
     Account,
     OrderLine,
+    Product,
     RedoBill,
     RedoCharge,
     RedoTopup,
@@ -58,6 +59,11 @@ ORIGIN_NAMES = {
 BUCKETS = [(0, 8, "Menos de $8"), (8, 12, "$8 a $12"), (12, 16, "$12 a $16"), (16, 25, "$16 a $25"), (25, 1e9, "$25 o más")]
 NO_STATE = "(sin dato)"
 LONG_AGO = date(2000, 1, 1)
+# Un SKU se marca para revisar medidas con al menos estas órdenes enviadas y esta tasa de corrección.
+FLAG_MIN_ORDERS = 5
+FLAG_MIN_RATE = 0.15
+TOP_REASONS_PER_SKU = 3
+FLAG_SUGGESTION = "Revisa el peso y las medidas declaradas de este producto en la plataforma"
 
 
 def _f(value: object) -> float:
@@ -312,6 +318,141 @@ async def redo_costs(session: AsyncSession, *, days: int = 90, today: date | Non
         ],
         "top_orders": [order_row(n, o) for n, o in top],
         "relabeled_orders": [order_row(n, o) for n, o in relabels],
+    }
+
+
+async def _order_skus(session: AsyncSession, names: list[str]) -> dict[str, dict[str, dict[str, Any]]]:
+    """Por orden de Redo: SKU -> {name, gross} según las líneas de venta (varias cuentas con el mismo id se suman)."""
+    out: dict[str, dict[str, dict[str, Any]]] = {}
+    for part in _chunks(names):
+        for ext, sku, pname, gross in (
+            await session.execute(
+                select(SalesOrder.external_order_id, Product.sku, Product.name, OrderLine.gross_sales)
+                .join(OrderLine, OrderLine.order_id == SalesOrder.id)
+                .join(Product, Product.id == OrderLine.product_id)
+                .where(SalesOrder.external_order_id.in_(part))
+            )
+        ).all():
+            rec = out.setdefault(ext, {}).setdefault(sku, {"name": pname, "gross": 0.0})
+            rec["gross"] += _f(gross)
+    return out
+
+
+def _shares(skus: dict[str, dict[str, Any]]) -> dict[str, float]:
+    """Parte de cada SKU en una orden según su venta bruta (si no hay venta, partes iguales)."""
+    total = sum(s["gross"] for s in skus.values())
+    if total > 0:
+        return {sku: s["gross"] / total for sku, s in skus.items()}
+    return {sku: 1 / len(skus) for sku in skus}
+
+
+async def redo_corrections_by_sku(
+    session: AsyncSession, *, days: int = 180, today: date | None = None
+) -> dict[str, Any]:
+    """Correcciones del carrier (Surcharge) por SKU: marca los productos con peso o medidas mal declarados.
+
+    Solo cuentan las órdenes con etiqueta (ChargeLabel) en la ventana. El monto de una orden con varios SKU
+    se reparte según la venta bruta de cada línea. Las correcciones de órdenes que no están en las ventas de la
+    app (o que no tienen etiqueta en la ventana) van a `unattributed`.
+    """
+    start, end = _window(days, today)
+    charges = await _load(session, start, end)
+    labeled = {c.order_name for c in charges if c.order_name and c.subtype == "ChargeLabel"}
+    label_cost: dict[str, float] = defaultdict(float)
+    surcharges: dict[str, list[RedoCharge]] = defaultdict(list)
+    for c in charges:
+        if not c.order_name:
+            continue
+        if c.subtype == "ChargeLabel":
+            label_cost[c.order_name] += _f(c.amount)
+        elif c.subtype == "Surcharge":
+            surcharges[c.order_name].append(c)
+
+    order_skus = await _order_skus(session, sorted(labeled | set(surcharges)))
+    rows: dict[str, dict[str, Any]] = {}
+    sku_reasons: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(lambda: [0, 0.0]))
+    reasons: dict[str, dict[str, Any]] = {}
+    total = 0.0
+    total_count = 0
+    unattr_amount = 0.0
+    unattr_count = 0
+
+    for name, rows_c in surcharges.items():
+        amount = sum(_f(c.amount) for c in rows_c)
+        total += amount
+        total_count += len(rows_c)
+        for c in rows_c:
+            r = reasons.setdefault(_reason("Surcharge", c.note), {"reason": _reason("Surcharge", c.note), "count": 0, "amount": 0.0})
+            r["count"] += 1
+            r["amount"] += _f(c.amount)
+        if name not in labeled or name not in order_skus:
+            unattr_amount += amount
+            unattr_count += len(rows_c)
+
+    for name in labeled:
+        skus = order_skus.get(name)
+        if not skus:
+            continue
+        shares = _shares(skus)
+        order_charges = surcharges.get(name, [])
+        amount = sum(_f(c.amount) for c in order_charges)
+        for sku, meta in skus.items():
+            rec = rows.setdefault(
+                sku,
+                {"sku": sku, "name": meta["name"], "orders": 0, "orders_with_correction": 0, "correction_amount": 0.0, "label_cost": 0.0},
+            )
+            rec["orders"] += 1
+            rec["label_cost"] += label_cost[name] * shares[sku]
+            if order_charges:
+                rec["orders_with_correction"] += 1
+                rec["correction_amount"] += amount * shares[sku]
+                for c in order_charges:
+                    bucket = sku_reasons[sku][_reason("Surcharge", c.note)]
+                    bucket[0] += 1
+                    bucket[1] += _f(c.amount) * shares[sku]
+
+    out_rows = []
+    for sku, rec in rows.items():
+        rate = rec["orders_with_correction"] / rec["orders"]
+        flag = rec["orders"] >= FLAG_MIN_ORDERS and rate >= FLAG_MIN_RATE
+        top = sorted(sku_reasons[sku].items(), key=lambda kv: (-kv[1][0], -kv[1][1]))[:TOP_REASONS_PER_SKU]
+        out_rows.append(
+            {
+                "sku": sku,
+                "name": rec["name"],
+                "shipped_orders": rec["orders"],
+                "orders_with_correction": rec["orders_with_correction"],
+                "correction_rate": rate,
+                "correction_amount": round(rec["correction_amount"], 2),
+                "avg_correction": rec["correction_amount"] / rec["orders_with_correction"]
+                if rec["orders_with_correction"]
+                else None,
+                "label_cost": round(rec["label_cost"], 2),
+                "correction_pct_of_labels": rec["correction_amount"] / rec["label_cost"] if rec["label_cost"] > 0 else None,
+                "top_reasons": [{"reason": r, "count": int(v[0]), "amount": round(v[1], 2)} for r, v in top],
+                "flag": flag,
+                "suggestion": FLAG_SUGGESTION if flag else None,
+            }
+        )
+    out_rows.sort(key=lambda r: (-r["correction_amount"], r["sku"]))
+    flagged = [r for r in out_rows if r["flag"]]
+    return {
+        "days": days,
+        "window": {"start": start.isoformat(), "end": end.isoformat()},
+        "thresholds": {"min_orders": FLAG_MIN_ORDERS, "min_rate": FLAG_MIN_RATE},
+        "summary": {
+            "total_corrections": round(total, 2),
+            "correction_count": total_count,
+            "flagged_skus": len(flagged),
+            "flagged_amount": round(sum(r["correction_amount"] for r in flagged), 2),
+            "label_cost": round(sum(label_cost.values()), 2),
+            "pct_of_labels": total / sum(label_cost.values()) if sum(label_cost.values()) > 0 else None,
+            "reasons": sorted(
+                ({**r, "amount": round(r["amount"], 2)} for r in reasons.values()), key=lambda r: -r["amount"]
+            )[:12],
+            "unattributed": {"amount": round(unattr_amount, 2), "count": unattr_count},
+        },
+        "skus": out_rows,
     }
 
 
