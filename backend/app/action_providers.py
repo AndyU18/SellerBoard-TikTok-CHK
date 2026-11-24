@@ -18,6 +18,7 @@ PROVIDER_MODULES: tuple[str, ...] = (
     "app.sample_policy",  # creadores a quienes dejar de enviar muestras
     "app.min_price",  # SKU vendidos por debajo de su precio mínimo con envío real
     "app.walmart_actions",  # pedidos por vencer, calidad de listados, feeds con fallos y repricer de Walmart
+    "app.tiktok_actions",  # listados rechazados, paquetes atascados y pagos con problemas de TikTok Shop
 )
 
 

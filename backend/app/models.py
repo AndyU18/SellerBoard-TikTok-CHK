@@ -929,3 +929,243 @@ class TikTokOrganicVideoMetric(Base):
     likes: Mapped[int] = mapped_column(BigInteger, default=0)
     comments: Mapped[int] = mapped_column(BigInteger, default=0)
     shares: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
+# --- TikTok Shop: datos extra (catálogo, rendimiento, promociones, cupones, paquetes, pagos...) ---------------
+# Tablas del esquema ops. Claves naturales = ids de TikTok (texto), así cada sincronización es idempotente.
+# Solo lectura de la API: nada de esto se escribe de vuelta en TikTok.
+
+
+class TikTokShopProduct(Base):
+    """Producto del catálogo de TikTok Shop con su imagen principal (solo la URL). ops.tiktok_shop_product."""
+
+    __tablename__ = "tiktok_shop_product"
+    __table_args__ = ({"schema": "ops"},)
+
+    product_id: Mapped[str] = mapped_column(String, primary_key=True)
+    title: Mapped[str | None] = mapped_column(String)
+    status: Mapped[str | None] = mapped_column(String, index=True)
+    audit_status: Mapped[str | None] = mapped_column(String)
+    audit_reasons: Mapped[list | None] = mapped_column(JSON)
+    listing_quality_tier: Mapped[str | None] = mapped_column(String)
+    is_not_for_sale: Mapped[bool] = mapped_column(Boolean, default=False)
+    main_image_url: Mapped[str | None] = mapped_column(String)
+    thumb_url: Mapped[str | None] = mapped_column(String)
+    image_count: Mapped[int] = mapped_column(default=0)
+    brand_name: Mapped[str | None] = mapped_column(String)
+    categories: Mapped[list | None] = mapped_column(JSON)
+    sales_regions: Mapped[list | None] = mapped_column(JSON)
+    min_price: Mapped[Decimal | None] = mapped_column(Money)
+    max_price: Mapped[Decimal | None] = mapped_column(Money)
+    currency: Mapped[str | None] = mapped_column(String)
+    sku_count: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class TikTokShopProductSku(Base):
+    """SKU de un producto: une el id de TikTok con el SKU del vendedor (seller_sku). ops.tiktok_shop_product_sku."""
+
+    __tablename__ = "tiktok_shop_product_sku"
+    __table_args__ = ({"schema": "ops"},)
+
+    sku_id: Mapped[str] = mapped_column(String, primary_key=True)
+    product_id: Mapped[str] = mapped_column(String, index=True)
+    seller_sku: Mapped[str | None] = mapped_column(String, index=True)
+    price: Mapped[Decimal | None] = mapped_column(Money)
+    currency: Mapped[str | None] = mapped_column(String)
+    quantity: Mapped[int] = mapped_column(default=0)
+
+
+class TikTokShopProductPerformance(Base):
+    """Foto diaria del rendimiento de un producto en una ventana. ops.tiktok_shop_product_performance."""
+
+    __tablename__ = "tiktok_shop_product_performance"
+    __table_args__ = ({"schema": "ops"},)
+
+    product_id: Mapped[str] = mapped_column(String, primary_key=True)
+    snapshot_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    window_start: Mapped[date] = mapped_column(Date)
+    window_end: Mapped[date] = mapped_column(Date)
+    gmv: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    orders: Mapped[int] = mapped_column(default=0)
+    units_sold: Mapped[int] = mapped_column(default=0)
+    impressions: Mapped[int | None] = mapped_column(BigInteger)
+    page_views: Mapped[int | None] = mapped_column(BigInteger)
+    page_visitors: Mapped[int | None] = mapped_column(BigInteger)
+    click_through_rate: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
+    conversion_rate: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
+    gmv_video: Mapped[Decimal | None] = mapped_column(Money)
+    gmv_live: Mapped[Decimal | None] = mapped_column(Money)
+    gmv_product_card: Mapped[Decimal | None] = mapped_column(Money)
+
+
+class TikTokShopSkuPerformance(Base):
+    """Foto diaria del rendimiento de un SKU en una ventana. ops.tiktok_shop_sku_performance."""
+
+    __tablename__ = "tiktok_shop_sku_performance"
+    __table_args__ = ({"schema": "ops"},)
+
+    sku_id: Mapped[str] = mapped_column(String, primary_key=True)
+    snapshot_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    product_id: Mapped[str | None] = mapped_column(String)
+    window_start: Mapped[date] = mapped_column(Date)
+    window_end: Mapped[date] = mapped_column(Date)
+    gmv: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    orders: Mapped[int] = mapped_column(default=0)
+    units_sold: Mapped[int] = mapped_column(default=0)
+
+
+class TikTokShopPromotion(Base):
+    """Actividad de promoción (precio fijo, flash sale, envío...). ops.tiktok_shop_promotion."""
+
+    __tablename__ = "tiktok_shop_promotion"
+    __table_args__ = ({"schema": "ops"},)
+
+    activity_id: Mapped[str] = mapped_column(String, primary_key=True)
+    title: Mapped[str | None] = mapped_column(String)
+    activity_type: Mapped[str | None] = mapped_column(String)
+    product_level: Mapped[str | None] = mapped_column(String)
+    status: Mapped[str | None] = mapped_column(String, index=True)
+    duration_type: Mapped[str | None] = mapped_column(String)
+    begin_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    product_count: Mapped[int] = mapped_column(default=0)
+    discount: Mapped[dict | None] = mapped_column(JSON)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class TikTokShopPromotionProduct(Base):
+    """Producto incluido en una actividad y su precio promocional. ops.tiktok_shop_promotion_product."""
+
+    __tablename__ = "tiktok_shop_promotion_product"
+    __table_args__ = ({"schema": "ops"},)
+
+    activity_id: Mapped[str] = mapped_column(String, primary_key=True)
+    product_id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    activity_price: Mapped[Decimal | None] = mapped_column(Money)
+    currency: Mapped[str | None] = mapped_column(String)
+    discount: Mapped[dict | None] = mapped_column(JSON)
+    quantity_limit: Mapped[int | None]
+    quantity_per_user: Mapped[int | None]
+
+
+class TikTokShopCoupon(Base):
+    """Cupón del vendedor. ops.tiktok_shop_coupon."""
+
+    __tablename__ = "tiktok_shop_coupon"
+    __table_args__ = ({"schema": "ops"},)
+
+    coupon_id: Mapped[str] = mapped_column(String, primary_key=True)
+    title: Mapped[str | None] = mapped_column(String)
+    status: Mapped[str | None] = mapped_column(String, index=True)
+    display_type: Mapped[str | None] = mapped_column(String)
+    promo_code: Mapped[str | None] = mapped_column(String)
+    product_scope: Mapped[str | None] = mapped_column(String)
+    target_segment: Mapped[str | None] = mapped_column(String)
+    discount_type: Mapped[str | None] = mapped_column(String)
+    discount_percent: Mapped[Decimal | None] = mapped_column(Numeric(9, 4))
+    discount_amount: Mapped[Decimal | None] = mapped_column(Money)
+    max_discount: Mapped[Decimal | None] = mapped_column(Money)
+    threshold_type: Mapped[str | None] = mapped_column(String)
+    min_spend: Mapped[Decimal | None] = mapped_column(Money)
+    currency: Mapped[str | None] = mapped_column(String)
+    claim_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    claim_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    redeem_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    redeem_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    redemption_limit: Mapped[int | None]
+    per_buyer_limit: Mapped[int | None]
+    claimed_count: Mapped[int | None]
+    redeemed_count: Mapped[int | None]
+    product_ids: Mapped[list | None] = mapped_column(JSON)
+    creation_source: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class TikTokShopPackage(Base):
+    """Paquete de fulfillment: estados y tiempos, sin datos del comprador. ops.tiktok_shop_package."""
+
+    __tablename__ = "tiktok_shop_package"
+    __table_args__ = ({"schema": "ops"},)
+
+    package_id: Mapped[str] = mapped_column(String, primary_key=True)
+    status: Mapped[str | None] = mapped_column(String, index=True)
+    tracking_number: Mapped[str | None] = mapped_column(String)
+    order_ids: Mapped[list | None] = mapped_column(JSON)
+    order_count: Mapped[int] = mapped_column(default=0)
+    unit_count: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_event: Mapped[str | None] = mapped_column(String)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class TikTokShopPayment(Base):
+    """Pago de TikTok al banco del vendedor (solo los últimos 4 dígitos de la cuenta). ops.tiktok_shop_payment."""
+
+    __tablename__ = "tiktok_shop_payment"
+    __table_args__ = ({"schema": "ops"},)
+
+    payment_id: Mapped[str] = mapped_column(String, primary_key=True)
+    status: Mapped[str | None] = mapped_column(String, index=True)
+    currency: Mapped[str | None] = mapped_column(String)
+    amount: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    settlement_amount: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    reserve_amount: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    amount_before_exchange: Mapped[Decimal | None] = mapped_column(Money)
+    exchange_rate: Mapped[Decimal | None] = mapped_column(Numeric(14, 6))
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    bank_last4: Mapped[str | None] = mapped_column(String)
+    statement_ids: Mapped[list | None] = mapped_column(JSON)
+
+
+class TikTokShopWithdrawal(Base):
+    """Retiro de saldo. ops.tiktok_shop_withdrawal."""
+
+    __tablename__ = "tiktok_shop_withdrawal"
+    __table_args__ = ({"schema": "ops"},)
+
+    withdrawal_id: Mapped[str] = mapped_column(String, primary_key=True)
+    type: Mapped[str | None] = mapped_column(String)
+    status: Mapped[str | None] = mapped_column(String, index=True)
+    currency: Mapped[str | None] = mapped_column(String)
+    amount: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class TikTokShopWarehouse(Base):
+    """Almacén (sin líneas de calle ni contacto). ops.tiktok_shop_warehouse."""
+
+    __tablename__ = "tiktok_shop_warehouse"
+    __table_args__ = ({"schema": "ops"},)
+
+    warehouse_id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str | None] = mapped_column(String)
+    type: Mapped[str | None] = mapped_column(String)
+    sub_type: Mapped[str | None] = mapped_column(String)
+    status: Mapped[str | None] = mapped_column(String)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    city: Mapped[str | None] = mapped_column(String)
+    state: Mapped[str | None] = mapped_column(String)
+    region_code: Mapped[str | None] = mapped_column(String)
+    postal_code: Mapped[str | None] = mapped_column(String)
+
+
+class TikTokShopWebhook(Base):
+    """Suscripción a eventos (webhook) del vendedor. ops.tiktok_shop_webhook."""
+
+    __tablename__ = "tiktok_shop_webhook"
+    __table_args__ = ({"schema": "ops"},)
+
+    event_type: Mapped[str] = mapped_column(String, primary_key=True)
+    address: Mapped[str] = mapped_column(String, primary_key=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

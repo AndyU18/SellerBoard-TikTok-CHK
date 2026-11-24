@@ -5,6 +5,8 @@ import {
   Bell,
   Boxes,
   Calculator,
+  ChevronDown,
+  ChevronRight,
   CircleAlert,
   Clock,
   Coins,
@@ -22,6 +24,7 @@ import {
   LogOut,
   Mail,
   Megaphone,
+  Music2,
   Package,
   PackageCheck,
   Radio,
@@ -85,6 +88,8 @@ import { CreatorProfit } from '@/pages/CreatorProfit'
 import { MinPrice } from '@/pages/MinPrice'
 import { SampleStrategy } from '@/pages/SampleStrategy'
 import { SettlementAging } from '@/pages/SettlementAging'
+import { loadTikTokTab, saveTikTokTab, TIKTOK_MENU, type TikTokTab } from '@/components/tiktok/tiktokMenu'
+import { TikTokHub } from '@/pages/TikTokHub'
 import { WalmartHub } from '@/pages/WalmartHub'
 import { OrderProfit } from '@/pages/OrderProfit'
 import { SettlementBreakdown } from '@/pages/SettlementBreakdown'
@@ -123,6 +128,7 @@ type Page =
   | 'reconciliation'
   | 'ads'
   | 'walmart'
+  | 'tiktok'
   | 'actionCenter'
   | 'costRisk'
   | 'settlementAging'
@@ -155,6 +161,7 @@ const icon = 'size-4'
 // El orden del arreglo es el del menú; los grupos se dibujan cuando cambia `group`.
 const NAV: NavItem[] = [
   { group: 'Resumen', id: 'dashboard', label: 'Resumen ejecutivo', icon: <LayoutDashboard className={icon} />, permission: 'profit.view' },
+  { group: 'Canales', id: 'tiktok', label: 'TikTok', icon: <Music2 className={icon} />, permission: 'profit.view' },
   { group: 'Canales', id: 'walmart', label: 'Walmart', icon: <Store className={icon} />, permission: 'profit.view' },
   { group: 'Resumen', id: 'actionCenter', label: 'Centro de acciones', icon: <ListChecks className={icon} />, permission: 'profit.view' },
   { group: 'Resumen', id: 'alerts', label: 'Alertas', icon: <Bell className={icon} />, permission: 'profit.view' },
@@ -228,6 +235,15 @@ function Centered({ children }: { children: ReactNode }) {
 export default function App() {
   const { session, me, accessError, can, signOut } = useAuth()
   const [page, setPage] = useState<Page>('dashboard')
+  // Menú desplegable de TikTok: qué sección está abierta y si la lista está expandida.
+  const [tiktokTab, setTiktokTab] = useState<TikTokTab>(loadTikTokTab)
+  const [tiktokOpen, setTiktokOpen] = useState(false)
+  const openTikTok = (tab: TikTokTab) => {
+    setTiktokTab(tab)
+    saveTikTokTab(tab)
+    setTiktokOpen(true)
+    setPage('tiktok')
+  }
 
   if (session === undefined) return <Centered>Cargando…</Centered>
   if (session === null) return <Login />
@@ -266,7 +282,9 @@ export default function App() {
   const current = nav.some((n) => n.id === page) ? page : nav[0].id
   // Las pantallas pueden mandar al usuario a otra (p. ej. Calidad de datos -> Costos); solo si tiene permiso.
   const navigate = (id: string) => {
-    if (nav.some((n) => n.id === id)) setPage(id as Page)
+    if (!nav.some((n) => n.id === id)) return
+    if (id === 'tiktok') setTiktokOpen(true)
+    setPage(id as Page)
   }
 
   return (
@@ -285,8 +303,12 @@ export default function App() {
                 </div>
               )}
               <button
-                onClick={() => setPage(n.id)}
+                onClick={() => {
+                  if (n.id === 'tiktok') setTiktokOpen(current === 'tiktok' ? !tiktokOpen : true)
+                  setPage(n.id)
+                }}
                 aria-current={current === n.id ? 'page' : undefined}
+                aria-expanded={n.id === 'tiktok' ? tiktokOpen : undefined}
                 className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors ${
                   current === n.id ? 'bg-slate-700 text-white' : 'text-slate-300 hover:bg-slate-700/60'
                 }`}
@@ -294,7 +316,28 @@ export default function App() {
                 {n.icon}
                 {n.label}
                 {n.id === 'alerts' && <AlertBadge />}
+                {n.id === 'tiktok' && (tiktokOpen ? <ChevronDown className="ml-auto size-4" /> : <ChevronRight className="ml-auto size-4" />)}
               </button>
+              {n.id === 'tiktok' && tiktokOpen && (
+                <div className="mt-0.5 mb-1 ml-3 space-y-0.5 border-l border-slate-600 pl-2" role="group" aria-label="Secciones de TikTok">
+                  {TIKTOK_MENU.map((item, j) => (
+                    <div key={item.id}>
+                      {(j === 0 || TIKTOK_MENU[j - 1].group !== item.group) && (
+                        <div className="mt-2 mb-0.5 px-2 text-[10px] font-semibold tracking-wider text-slate-500 uppercase">{item.group}</div>
+                      )}
+                      <button
+                        onClick={() => openTikTok(item.id)}
+                        aria-current={current === 'tiktok' && tiktokTab === item.id ? 'page' : undefined}
+                        className={`block w-full rounded px-2 py-1 text-left text-[13px] transition-colors ${
+                          current === 'tiktok' && tiktokTab === item.id ? 'bg-slate-600 text-white' : 'text-slate-300 hover:bg-slate-700/60'
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </nav>
@@ -324,8 +367,8 @@ export default function App() {
             <LogOut className="size-4" />
           </button>
         </nav>
-        {current !== 'import' && current !== 'walmart' && <ScopeBar />}
-        {current !== 'import' && current !== 'walmart' && (
+        {current !== 'import' && current !== 'walmart' && current !== 'tiktok' && <ScopeBar />}
+        {current !== 'import' && current !== 'walmart' && current !== 'tiktok' && (
           <PageHeader
             title={nav.find((n) => n.id === current)?.label ?? ''}
             showKpis={!NO_KPI_PAGES.includes(current)}
@@ -333,7 +376,9 @@ export default function App() {
         )}
         {/* El espacio Walmart trae su propia barra, encabezado y pestañas (todo filtrado a Walmart). */}
         {current === 'walmart' && <WalmartHub />}
-        <main className={current === 'walmart' ? 'hidden' : 'flex-1 p-6'}>
+        {/* TikTok: sus secciones están en la lista desplegable del menú lateral; todo se ve filtrado a TikTok Shop. */}
+        {current === 'tiktok' && <TikTokHub tab={tiktokTab} onTab={openTikTok} />}
+        <main className={current === 'walmart' || current === 'tiktok' ? 'hidden' : 'flex-1 p-6'}>
           {current === 'dashboard' && <Dashboard />}
           {current === 'alerts' && <Alerts />}
           {current === 'assistant' && <Assistant />}
