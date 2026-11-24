@@ -11,7 +11,9 @@ from app.api import router
 from app.assistant_api import router as assistant_router
 from app.chartdata_dinero import router as chartdata_dinero_router
 from app.chartdata_operacion import router as chartdata_operacion_router
+from app.chartdata_pedidos import router as chartdata_pedidos_router
 from app.chartdata_precios import router as chartdata_precios_router
+from app.chartdata_productos import router as chartdata_productos_router
 from app.chartdata_resumen import router as chartdata_resumen_router
 from app.config import settings
 from app.db import SessionLocal, init_db
@@ -57,6 +59,8 @@ app.include_router(analytics_router)
 app.include_router(redo_router)
 app.include_router(ads_router)
 app.include_router(chartdata_dinero_router)
+app.include_router(chartdata_pedidos_router)
+app.include_router(chartdata_productos_router)
 app.include_router(chartdata_resumen_router)
 app.include_router(chartdata_precios_router)
 app.include_router(chartdata_operacion_router)

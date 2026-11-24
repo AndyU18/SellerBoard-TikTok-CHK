@@ -66,6 +66,7 @@ import { Pnl } from '@/pages/Pnl'
 import { Pricing } from '@/pages/Pricing'
 import { Products } from '@/pages/Products'
 import { Promotions } from '@/pages/Promotions'
+import { PageHeader } from '@/components/PageHeader'
 import { Ads } from '@/pages/Ads'
 import { Reconciliation } from '@/pages/Reconciliation'
 import { RedoBilling } from '@/pages/RedoBilling'
@@ -155,6 +156,9 @@ const NAV: NavItem[] = [
   { group: 'Catálogo y datos', id: 'import', label: 'Importar', icon: <Upload className={icon} />, permission: 'import.run' },
   { group: 'Administración', id: 'users', label: 'Usuarios', icon: <UsersIcon className={icon} />, permission: 'users.view' },
 ]
+
+/** Pantallas sin franja de indicadores (administración o sin relación con ventas). */
+const NO_KPI_PAGES: Page[] = ['users', 'notifications', 'assistant', 'skus', 'export', 'quality']
 
 /** Cuántas alertas críticas (o, si no hay, de atención) hay; se comparte la petición con la pantalla. */
 function AlertBadge() {
@@ -277,6 +281,12 @@ export default function App() {
           </button>
         </nav>
         {current !== 'import' && <ScopeBar />}
+        {current !== 'import' && (
+          <PageHeader
+            title={nav.find((n) => n.id === current)?.label ?? ''}
+            showKpis={!NO_KPI_PAGES.includes(current)}
+          />
+        )}
         <main className="flex-1 p-6">
           {current === 'dashboard' && <Dashboard />}
           {current === 'alerts' && <Alerts />}

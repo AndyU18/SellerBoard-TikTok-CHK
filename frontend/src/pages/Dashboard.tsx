@@ -3,10 +3,13 @@ import { Bar, BarChart, CartesianGrid, Legend, ReferenceLine, ResponsiveContaine
 
 import { ErrorAlert } from '@/components/analytics/ui'
 import { ChannelBadge } from '@/components/ChannelBadge'
+import { useScopeDescription } from '@/components/PageHeader'
 import { ChartCard, EmptyChart, type CsvRow } from '@/components/charts/kit'
 import { ComboChart, type ComboSeries } from '@/components/charts/ComboChart'
 import { HeatTable, type HeatRow } from '@/components/charts/HeatTable'
 import { SparkKpi } from '@/components/charts/SparkKpi'
+import { IncomeStatement } from '@/components/dashboard/IncomeStatement'
+import { ProductsExplorer } from '@/components/dashboard/ProductsExplorer'
 import { Waterfall, type WaterfallStep } from '@/components/charts/Waterfall'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { api, CHANNEL_COLOR, CHANNEL_LABEL, CHANNELS, type Filters, type ProfitRow } from '@/lib/api'
@@ -107,6 +110,7 @@ const COMBO: ComboSeries[] = [
 
 export function Dashboard() {
   const scope = useScope()
+  const description = useScopeDescription()
   const { preset, range } = scope
   const [pick, setPick] = useState<string | null>(null)
   const [concept, setConcept] = useState<MoneyKey | null>(null)
@@ -213,8 +217,6 @@ export function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Resumen ejecutivo</h1>
-
       <ErrorAlert message={error} />
 
       {noCost.length > 0 && (
@@ -248,8 +250,9 @@ export function Dashboard() {
         })}
       </div>
 
-      <ChartCard
-        title={`Evolución ${interval === 'day' ? 'diaria' : 'mensual'}`}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_26rem]">
+        <ChartCard
+          title={`Evolución ${interval === 'day' ? 'diaria' : 'mensual'} — ${description}`}
         subtitle="Barras: utilidad, publicidad y reembolsos. Líneas: ventas y unidades (eje derecho). Toca un período para ver su cascada abajo; toca la leyenda para ocultar series."
         csv={comboCsv}
         filename="resumen-evolucion"
@@ -276,11 +279,15 @@ export function Dashboard() {
             }}
           />
         )}
-      </ChartCard>
+        </ChartCard>
+        <IncomeStatement />
+      </div>
+
+      <ProductsExplorer filters={filters} />
 
       <div className="grid gap-4 xl:grid-cols-[1fr_22rem]">
         <ChartCard
-          title="De ventas a utilidad neta"
+          title={`De ventas a utilidad neta — ${description}`}
           subtitle={`${active ? `Período ${fmtPeriod(active)}` : 'Todo el período'} · toca una barra para ver el detalle por canal`}
           csv={steps.map((s) => ({ concepto: s.label, monto: s.value }))}
           filename="resumen-cascada"
@@ -292,7 +299,7 @@ export function Dashboard() {
           )}
         </ChartCard>
 
-        <ChartCard title={conceptInfo ? `Detalle: ${conceptInfo.label}` : 'Detalle del concepto'} csv={concept ? channelCsv : undefined} filename="resumen-detalle-concepto">
+        <ChartCard title={conceptInfo ? `Detalle: ${conceptInfo.label} — ${description}` : 'Detalle del concepto'} csv={concept ? channelCsv : undefined} filename="resumen-detalle-concepto">
           {!conceptInfo || !scopedTotals ? (
             <EmptyChart>Toca una barra de la cascada.</EmptyChart>
           ) : (
@@ -322,7 +329,7 @@ export function Dashboard() {
       </div>
 
       <ChartCard
-        title="Producto × mes"
+        title={`Producto × mes — ${description}`}
         subtitle="Mapa de calor por fila (rojo = mes más bajo del producto, verde = más alto) con la variación contra el mes anterior."
         csv={heatCsv}
         filename={`resumen-producto-mes-${heat}`}
@@ -358,7 +365,7 @@ export function Dashboard() {
       </div>
 
       <ChartCard
-        title={`Utilidad neta por canal (${interval === 'day' ? 'diaria' : 'mensual'})`}
+        title={`Utilidad neta por canal (${interval === 'day' ? 'diaria' : 'mensual'}) — ${description}`}
         csv={channelChart.map((r) => ({ ...r }) as CsvRow)}
         filename="resumen-utilidad-por-canal"
       >
