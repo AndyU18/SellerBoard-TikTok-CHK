@@ -435,6 +435,21 @@ class Goal(Base):
     target: Mapped[Decimal] = mapped_column(Numeric(14, 2))
 
 
+class ActionStatus(Base):
+    """Estado que el usuario le da a una acción del Centro de acciones (ops.action_status)."""
+
+    __tablename__ = "action_status"
+    __table_args__ = ({"schema": "ops"},)
+
+    item_key: Mapped[str] = mapped_column(String, primary_key=True)
+    status: Mapped[str] = mapped_column(String)  # done | dismissed | snoozed
+    note: Mapped[str | None] = mapped_column(String)
+    snoozed_until: Mapped[date | None] = mapped_column(Date)
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    updated_by_email: Mapped[str | None] = mapped_column(String)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
 class SyncRun(Base):
     """Una ejecución de sincronización (manual o programada). Tabla ops.sync_run."""
 

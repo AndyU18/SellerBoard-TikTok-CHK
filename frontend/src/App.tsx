@@ -1,19 +1,23 @@
 import {
+  BadgeDollarSign,
   BarChart3,
   Banknote,
   Bell,
   Boxes,
   Calculator,
+  CircleAlert,
   Clock,
   Coins,
   DollarSign,
   Filter,
   GitCompareArrows,
   Gift,
+  Hourglass,
   LayoutDashboard,
   Download,
   Layers,
   Link2,
+  ListChecks,
   ListOrdered,
   LogOut,
   Mail,
@@ -30,6 +34,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Tag,
+  Target,
   TrendingUp,
   Trophy,
   Truck,
@@ -73,7 +78,12 @@ import { Products } from '@/pages/Products'
 import { Promotions } from '@/pages/Promotions'
 import { PageHeader } from '@/components/PageHeader'
 import { Ads } from '@/pages/Ads'
+import { ActionCenter } from '@/pages/ActionCenter'
+import { CostRisk } from '@/pages/CostRisk'
 import { CreatorProfit } from '@/pages/CreatorProfit'
+import { MinPrice } from '@/pages/MinPrice'
+import { SampleStrategy } from '@/pages/SampleStrategy'
+import { SettlementAging } from '@/pages/SettlementAging'
 import { OrderProfit } from '@/pages/OrderProfit'
 import { SettlementBreakdown } from '@/pages/SettlementBreakdown'
 import { Simulator } from '@/pages/Simulator'
@@ -110,6 +120,11 @@ type Page =
   | 'cashflow'
   | 'reconciliation'
   | 'ads'
+  | 'actionCenter'
+  | 'costRisk'
+  | 'settlementAging'
+  | 'sampleStrategy'
+  | 'minPrice'
   | 'orderProfit'
   | 'simulator'
   | 'settlements'
@@ -137,6 +152,7 @@ const icon = 'size-4'
 // El orden del arreglo es el del menú; los grupos se dibujan cuando cambia `group`.
 const NAV: NavItem[] = [
   { group: 'Resumen', id: 'dashboard', label: 'Resumen ejecutivo', icon: <LayoutDashboard className={icon} />, permission: 'profit.view' },
+  { group: 'Resumen', id: 'actionCenter', label: 'Centro de acciones', icon: <ListChecks className={icon} />, permission: 'profit.view' },
   { group: 'Resumen', id: 'alerts', label: 'Alertas', icon: <Bell className={icon} />, permission: 'profit.view' },
   { group: 'Resumen', id: 'assistant', label: 'Asistente', icon: <Sparkles className={icon} />, permission: 'profit.view' },
   { group: 'Resumen', id: 'forecast', label: 'Pronóstico y metas', icon: <TrendingUp className={icon} />, permission: 'profit.view' },
@@ -146,6 +162,8 @@ const NAV: NavItem[] = [
   { group: 'Rentabilidad', id: 'pricing', label: 'Precios', icon: <DollarSign className={icon} />, permission: 'profit.view' },
   { group: 'Rentabilidad', id: 'tariffs', label: 'Aranceles', icon: <Ship className={icon} />, permission: 'profit.view' },
   { group: 'Rentabilidad', id: 'orderProfit', label: 'Utilidad por orden', icon: <ReceiptText className={icon} />, permission: 'profit.view' },
+  { group: 'Rentabilidad', id: 'minPrice', label: 'Precio mínimo real', icon: <BadgeDollarSign className={icon} />, permission: 'profit.view' },
+  { group: 'Rentabilidad', id: 'costRisk', label: 'Utilidad en riesgo', icon: <CircleAlert className={icon} />, permission: 'profit.view' },
   { group: 'Rentabilidad', id: 'simulator', label: 'Simulador ¿y si…?', icon: <SlidersHorizontal className={icon} />, permission: 'profit.view' },
   { group: 'Rentabilidad', id: 'ads', label: 'Publicidad (TikTok Ads)', icon: <Megaphone className={icon} />, permission: 'profit.view' },
   { group: 'Rentabilidad', id: 'promotions', label: 'Promociones', icon: <Tag className={icon} />, permission: 'profit.view' },
@@ -155,6 +173,7 @@ const NAV: NavItem[] = [
   { group: 'Operación', id: 'returns', label: 'Devoluciones', icon: <Undo2 className={icon} />, permission: 'profit.view' },
   { group: 'Operación', id: 'dayparting', label: 'Horas pico', icon: <Clock className={icon} />, permission: 'profit.view' },
   { group: 'Dinero', id: 'cashflow', label: 'Flujo de caja', icon: <Banknote className={icon} />, permission: 'profit.view' },
+  { group: 'Dinero', id: 'settlementAging', label: 'Dinero atorado', icon: <Hourglass className={icon} />, permission: 'profit.view' },
   { group: 'Dinero', id: 'settlements', label: 'Desglose de liquidación', icon: <Layers className={icon} />, permission: 'profit.view' },
   { group: 'Dinero', id: 'reconciliation', label: 'Conciliación', icon: <Scale className={icon} />, permission: 'profit.view' },
   { group: 'Redo (etiquetas)', id: 'redo', label: 'Resumen de Redo', icon: <PackageCheck className={icon} />, permission: 'profit.view' },
@@ -162,6 +181,7 @@ const NAV: NavItem[] = [
   { group: 'Redo (etiquetas)', id: 'redoCorrections', label: 'Correcciones por SKU', icon: <Ruler className={icon} />, permission: 'profit.view' },
   { group: 'Redo (etiquetas)', id: 'redoBilling', label: 'Facturación y saldo', icon: <Wallet className={icon} />, permission: 'profit.view' },
   { group: 'Redo (etiquetas)', id: 'redoCharges', label: 'Libro de cargos', icon: <ListOrdered className={icon} />, permission: 'profit.view' },
+  { group: 'Creadores y tráfico', id: 'sampleStrategy', label: 'Política de muestras', icon: <Target className={icon} />, permission: 'profit.view' },
   { group: 'Creadores y tráfico', id: 'creatorProfit', label: 'Rentabilidad por creador', icon: <Trophy className={icon} />, permission: 'profit.view' },
   { group: 'Creadores y tráfico', id: 'samples', label: 'Muestras', icon: <Gift className={icon} />, permission: 'profit.view' },
   { group: 'Creadores y tráfico', id: 'creatives', label: 'Creativos', icon: <Video className={icon} />, permission: 'profit.view' },
@@ -327,6 +347,11 @@ export default function App() {
           {current === 'cashflow' && <Cashflow />}
           {current === 'reconciliation' && <Reconciliation />}
           {current === 'ads' && <Ads />}
+          {current === 'actionCenter' && <ActionCenter onNavigate={navigate} />}
+          {current === 'costRisk' && <CostRisk onNavigate={navigate} />}
+          {current === 'settlementAging' && <SettlementAging />}
+          {current === 'sampleStrategy' && <SampleStrategy onNavigate={navigate} />}
+          {current === 'minPrice' && <MinPrice onNavigate={navigate} />}
           {current === 'orderProfit' && <OrderProfit />}
           {current === 'simulator' && <Simulator />}
           {current === 'settlements' && <SettlementBreakdown />}
