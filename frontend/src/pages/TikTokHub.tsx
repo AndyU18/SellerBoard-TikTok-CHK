@@ -17,6 +17,11 @@ import { SettlementAging } from '@/pages/SettlementAging'
 import { SettlementBreakdown } from '@/pages/SettlementBreakdown'
 import { TikTokCatalog } from '@/pages/tiktok/TikTokCatalog'
 import { TikTokCoupons } from '@/pages/tiktok/TikTokCoupons'
+import { TikTokCreatorInsights } from '@/pages/tiktok/TikTokCreatorInsights'
+import { TikTokCreatorOpportunities } from '@/pages/tiktok/TikTokCreatorOpportunities'
+import { TikTokCreatorOrders } from '@/pages/tiktok/TikTokCreatorOrders'
+import { TikTokCreatorProfile } from '@/pages/tiktok/TikTokCreatorProfile'
+import { TikTokCreatorShowcase } from '@/pages/tiktok/TikTokCreatorShowcase'
 import { TikTokOrders } from '@/pages/tiktok/TikTokOrders'
 import { TikTokOrganicConnection } from '@/pages/tiktok/TikTokOrganicConnection'
 import { TikTokOrganicHashtags } from '@/pages/tiktok/TikTokOrganicHashtags'
@@ -69,7 +74,15 @@ const SCREENS: Record<TikTokTab, Screen> = {
   organicHashtags: TikTokOrganicHashtags,
   organicVsShop: TikTokOrganicVsShop,
   organicConnection: TikTokOrganicConnection,
+  creatorProfile: TikTokCreatorProfile,
+  creatorOpportunities: TikTokCreatorOpportunities,
+  creatorInsights: TikTokCreatorInsights,
+  creatorOrders: TikTokCreatorOrders,
+  creatorShowcase: TikTokCreatorShowcase,
 }
+
+/** Texto del título según el grupo del menú: cada grupo es una parte distinta de TikTok. */
+const SPACE_TITLE: Record<string, string> = { 'TikTok orgánico': 'TikTok orgánico', 'TikTok Creator': 'TikTok Creator' }
 
 /**
  * Espacio "TikTok": un solo apartado del menú lateral con lista desplegable. Todo lo que se muestra aquí está
@@ -79,12 +92,12 @@ const SCREENS: Record<TikTokTab, Screen> = {
 export function TikTokHub({ tab, onTab }: { tab: TikTokTab; onTab: (tab: TikTokTab) => void }) {
   const current = TIKTOK_MENU.find((t) => t.id === tab) ?? TIKTOK_MENU[0]
   const Content = SCREENS[current.id]
-  const organic = current.group === 'TikTok orgánico'
+  const space = SPACE_TITLE[current.group] ?? 'TikTok Shop'
 
   return (
     <ForcedChannel channel="tiktok_shop">
       <ChannelScopeBar channel="tiktok_shop" />
-      <PageHeader title={`TikTok ${organic ? 'orgánico' : 'Shop'} · ${current.label}`} showKpis={!!current.kpis} />
+      <PageHeader title={`${space} · ${current.label}`} showKpis={!!current.kpis} />
       <main className="flex-1 p-6">
         <Content key={current.id} onOpenTab={(next) => onTab(next as TikTokTab)} />
       </main>

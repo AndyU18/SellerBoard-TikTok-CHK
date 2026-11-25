@@ -35,6 +35,7 @@ GROWTH_WINDOWS = (7, 30)
 RECENT_GROWTH_DAYS = 7  # ventana del "crecimiento reciente" por video
 VIRAL_MULTIPLE = 3.0  # un video "explota" si tiene >= 3 x la mediana de vistas
 MIN_VIDEOS_FOR_VIRAL = 5  # con menos videos la mediana no es una referencia confiable
+MIN_VIRAL_VIEWS = 1000  # piso absoluto: por debajo de esto un video no se considera "viral" aunque supere 3 x la mediana
 TOP_VIDEOS = 10
 TOP_SLOTS = 5
 MIN_RELIABLE_SLOT_VIDEOS = 3  # una franja con menos videos se marca low_sample
@@ -377,7 +378,9 @@ def viral_videos(videos: list[VideoStats], today: date, multiple: float = VIRAL_
             "note": f"Se necesitan al menos {MIN_VIDEOS_FOR_VIRAL} videos en el periodo para comparar.",
         }
     med = float(median(v.views for v in videos))
-    threshold = multiple * max(med, 1.0)  # con mediana 0 cualquier vista ya sería "viral": se fija piso en 1
+    # Con una mediana muy baja (cuentas con muchos videos que casi nadie ve) 3 x mediana serían unas decenas de
+    # vistas: no es "viral". Se exige también un mínimo absoluto de vistas, y la mediana nunca baja de 1.
+    threshold = max(multiple * max(med, 1.0), float(MIN_VIRAL_VIEWS))
     hits = sorted((v for v in videos if v.views >= threshold), key=lambda v: v.views, reverse=True)
     return {
         "multiple": multiple,

@@ -19,6 +19,8 @@ dist/
 # Tokens de plataformas (rotan; nunca commitear)
 tts_tokens*.json
 tokens*.json
+# Respaldo (.bak), bloqueo (.lock) y temporales (.tmp) de la renovación atómica de tokens
+tokens*.json.*
 
 # Copias de seguridad generadas por `python -m app.backup`
 backups/

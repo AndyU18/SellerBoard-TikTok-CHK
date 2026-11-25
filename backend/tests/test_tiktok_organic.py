@@ -500,6 +500,21 @@ async def test_performance_viral_distribution_and_series(maker):
     assert gained[0] is None and gained[1] == 34_850 - 34_850 // 2 - 0 or gained[1] > 0
 
 
+def test_viral_has_an_absolute_views_floor():
+    """Con mediana 24, 3 x mediana serían 72 vistas: no es viral. El piso absoluto lo evita."""
+    from datetime import date
+
+    from app.tiktok_organic_analytics import MIN_VIRAL_VIEWS, VideoStats, viral_videos
+
+    def video(i: str, views: int) -> VideoStats:
+        return VideoStats(i, None, None, None, None, 15, None, None, None, None, views, 0, 0, 0)
+
+    videos = [video(f"low{n}", 20 + n) for n in range(10)] + [video("mid", 150), video("big", MIN_VIRAL_VIEWS + 500)]
+    out = viral_videos(videos, date(2026, 11, 25))
+    assert out["threshold"] == float(MIN_VIRAL_VIEWS)  # y no 3 x la mediana
+    assert [v["video_id"] for v in out["videos"]] == ["big"]  # 150 vistas supera 3 x mediana pero no el piso
+
+
 @pytest.mark.asyncio
 async def test_viral_needs_minimum_videos(maker):
     async with maker() as s:

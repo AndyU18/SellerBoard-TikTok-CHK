@@ -32,6 +32,7 @@ from app.settlement_api import router as settlement_router
 from app.simulator_api import router as simulator_router
 from app.sku_api import router as sku_router
 from app.sync_jobs import auto_sync_loop
+from app.tiktok_creator_api import router as tiktok_creator_router
 from app.tiktok_extra_api import router as tiktok_extra_router
 from app.tiktok_organic_api import router as tiktok_organic_router
 from app.users_admin_api import router as users_admin_router
@@ -76,6 +77,7 @@ app.include_router(action_router)
 app.include_router(walmart_router)
 app.include_router(tiktok_organic_router)
 app.include_router(tiktok_extra_router)
+app.include_router(tiktok_creator_router)
 app.include_router(walmart_payments_router)
 app.include_router(cost_risk_router)
 app.include_router(settlement_aging_router)  # antes que settlement_router: "/aging" no debe caer en "/{id}/waterfall"

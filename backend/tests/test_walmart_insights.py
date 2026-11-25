@@ -39,7 +39,9 @@ from app.walmart_ops import (
     upsert_listing_quality,
 )
 
-NOW = datetime(2026, 11, 24, 15, 0, tzinfo=UTC)
+# "Ahora" real (a la hora en punto): el código bajo prueba usa el reloj del sistema, así que un "ahora" fijo hacía
+# que los pedidos "por vencer" de la prueba pasaran a "vencidos" con el paso de los días.
+NOW = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
 TODAY = NOW.date()
 ITEM_CSV = (
     "SKU,Item ID,Product Name,Publish Status,Lifecycle Status,Status Change Reason,Fulfillment Type,Price,"

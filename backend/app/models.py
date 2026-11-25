@@ -1169,3 +1169,106 @@ class TikTokShopWebhook(Base):
     event_type: Mapped[str] = mapped_column(String, primary_key=True)
     address: Mapped[str] = mapped_column(String, primary_key=True)
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class TikTokCreatorProfile(Base):
+    """Foto diaria del perfil de la cuenta de creador propia (sin tokens). ops.tiktok_creator_profile."""
+
+    __tablename__ = "tiktok_creator_profile"
+    __table_args__ = ({"schema": "ops"},)
+
+    snapshot_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    creator_user_id: Mapped[str | None] = mapped_column(String)
+    username: Mapped[str | None] = mapped_column(String)
+    avatar_url: Mapped[str | None] = mapped_column(String)
+    user_type: Mapped[str | None] = mapped_column(String)
+    seller_type: Mapped[str | None] = mapped_column(String)
+    register_region: Mapped[str | None] = mapped_column(String)
+    selection_region: Mapped[str | None] = mapped_column(String)
+    permissions: Mapped[list | None] = mapped_column(JSON)
+    catalog_total: Mapped[int | None] = mapped_column(Integer)  # total_count que reporta TikTok (tope 10.000)
+    showcase_total: Mapped[int | None] = mapped_column(Integer)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class TikTokCreatorProduct(Base):
+    """Producto del catálogo de afiliados (colaboración abierta). ops.tiktok_creator_product."""
+
+    __tablename__ = "tiktok_creator_product"
+    __table_args__ = ({"schema": "ops"},)
+
+    product_id: Mapped[str] = mapped_column(String, primary_key=True)
+    title: Mapped[str | None] = mapped_column(String)
+    image_url: Mapped[str | None] = mapped_column(String)
+    detail_link: Mapped[str | None] = mapped_column(String)
+    category: Mapped[str | None] = mapped_column(String)  # cadena "Hogar > Cocina > Utensilios"
+    category_leaf: Mapped[str | None] = mapped_column(String, index=True)
+    currency: Mapped[str | None] = mapped_column(String)
+    original_price_min: Mapped[Decimal | None] = mapped_column(Money)
+    original_price_max: Mapped[Decimal | None] = mapped_column(Money)
+    sale_price_min: Mapped[Decimal | None] = mapped_column(Money)
+    sale_price_max: Mapped[Decimal | None] = mapped_column(Money)
+    commission_rate: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))  # fracción: 0.10 = 10 %
+    commission_amount: Mapped[Decimal | None] = mapped_column(Money)  # por unidad
+    units_sold: Mapped[int] = mapped_column(BigInteger, default=0)
+    has_inventory: Mapped[bool] = mapped_column(Boolean, default=False)
+    shop_name: Mapped[str | None] = mapped_column(String)  # la API no expone el id de la tienda
+    sale_region: Mapped[str | None] = mapped_column(String)
+    suspect: Mapped[bool] = mapped_column(Boolean, default=False)  # importes o unidades imposibles (datos de prueba)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+
+
+class TikTokCreatorProductHistory(Base):
+    """Foto semanal de precio, comisión y unidades de un producto (26 semanas). ops.tiktok_creator_product_history."""
+
+    __tablename__ = "tiktok_creator_product_history"
+    __table_args__ = ({"schema": "ops"},)
+
+    product_id: Mapped[str] = mapped_column(String, primary_key=True)
+    snapshot_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    price: Mapped[Decimal | None] = mapped_column(Money)
+    commission_rate: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
+    commission_amount: Mapped[Decimal | None] = mapped_column(Money)
+    units_sold: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
+class TikTokCreatorShowcaseProduct(Base):
+    """Producto de la vitrina propia del creador. ops.tiktok_creator_showcase_product."""
+
+    __tablename__ = "tiktok_creator_showcase_product"
+    __table_args__ = ({"schema": "ops"},)
+
+    product_id: Mapped[str] = mapped_column(String, primary_key=True)
+    origin: Mapped[str] = mapped_column(String, primary_key=True)  # SHOWCASE | LIVE
+    title: Mapped[str | None] = mapped_column(String)
+    image_url: Mapped[str | None] = mapped_column(String)
+    source: Mapped[str | None] = mapped_column(String)
+    currency: Mapped[str | None] = mapped_column(String)
+    original_price_min: Mapped[Decimal | None] = mapped_column(Money)
+    original_price_max: Mapped[Decimal | None] = mapped_column(Money)
+    discount_price_min: Mapped[Decimal | None] = mapped_column(Money)
+    discount_price_max: Mapped[Decimal | None] = mapped_column(Money)
+    added_status: Mapped[str | None] = mapped_column(String)
+    inventory_status: Mapped[str | None] = mapped_column(String)
+    review_status: Mapped[str | None] = mapped_column(String)
+    is_hidden: Mapped[bool] = mapped_column(Boolean, default=False)
+    shop_name: Mapped[str | None] = mapped_column(String)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class TikTokCreatorOrder(Base):
+    """Pedido de afiliado propio (estructura sin verificar: se guarda el crudo). ops.tiktok_creator_order."""
+
+    __tablename__ = "tiktok_creator_order"
+    __table_args__ = ({"schema": "ops"},)
+
+    order_id: Mapped[str] = mapped_column(String, primary_key=True)
+    status: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    commission_amount: Mapped[Decimal | None] = mapped_column(Money)
+    currency: Mapped[str | None] = mapped_column(String)
+    payload: Mapped[dict | None] = mapped_column(JSON)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))

@@ -33,6 +33,11 @@ export type TikTokTab =
   | 'organicHashtags'
   | 'organicVsShop'
   | 'organicConnection'
+  | 'creatorProfile'
+  | 'creatorOpportunities'
+  | 'creatorInsights'
+  | 'creatorOrders'
+  | 'creatorShowcase'
 
 export type TikTokMenuItem = {
   id: TikTokTab
@@ -78,6 +83,12 @@ export const TIKTOK_MENU: TikTokMenuItem[] = [
   { id: 'organicHashtags', label: 'Hashtags y duración', group: 'TikTok orgánico' },
   { id: 'organicVsShop', label: 'Orgánico vs ventas', group: 'TikTok orgánico' },
   { id: 'organicConnection', label: 'Conexión', group: 'TikTok orgánico' },
+
+  { id: 'creatorOpportunities', label: 'Oportunidades de productos', group: 'TikTok Creator' },
+  { id: 'creatorInsights', label: 'Panorama de afiliados', group: 'TikTok Creator' },
+  { id: 'creatorOrders', label: 'Pedidos de afiliado', group: 'TikTok Creator' },
+  { id: 'creatorShowcase', label: 'Vitrina', group: 'TikTok Creator' },
+  { id: 'creatorProfile', label: 'Cuenta de creador', group: 'TikTok Creator' },
 ]
 
 export const TIKTOK_DEFAULT_TAB: TikTokTab = 'overview'

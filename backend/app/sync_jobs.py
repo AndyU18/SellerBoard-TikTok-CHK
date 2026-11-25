@@ -25,6 +25,7 @@ from app.connectors.tiktok_ads import (
     TikTokAdsSettings,
     sync_tiktok_ads,
 )
+from app.connectors.tiktok_creator import TikTokCreatorClient, TikTokCreatorSettings
 from app.connectors.tiktok_organic import (
     ConnectedTikTokOrganicSettings,
     TikTokOrganicClient,
@@ -37,12 +38,13 @@ from app.connectors.walmart import WalmartClient, WalmartSettings, sync_walmart
 from app.connectors.walmart_insights import sync_walmart_insights
 from app.gold import refresh_daily_profit
 from app.models import SyncRun
+from app.tiktok_creator_ops import sync_creator
 from app.tiktok_organic_ops import save_snapshot as save_tiktok_organic
 
 log = logging.getLogger("chk.sync")
 
 # Orden: primero las órdenes, después las etiquetas de Redo, que se unen a ellas.
-SOURCES = ("tiktok_shop", "tiktok_ads", "walmart", "redo", "walmart_insights", "tiktok_organic", "tiktok_shop_extra")
+SOURCES = ("tiktok_shop", "tiktok_ads", "walmart", "redo", "walmart_insights", "tiktok_organic", "tiktok_shop_extra", "tiktok_creator")
 LABELS = {
     "tiktok_shop": "TikTok Shop",
     "tiktok_ads": "TikTok Ads (publicidad)",
@@ -51,6 +53,7 @@ LABELS = {
     "walmart_insights": "Walmart (calidad, WFS, feeds)",
     "tiktok_organic": "TikTok orgánico (perfil y videos)",
     "tiktok_shop_extra": "TikTok Shop (catálogo, promociones, paquetes, pagos)",
+    "tiktok_creator": "TikTok Creator (catálogo de afiliados y pedidos)",
 }
 STALE_RUNNING = timedelta(minutes=30)  # una ejecución "en curso" más vieja que esto se considera caída
 
@@ -131,6 +134,16 @@ async def run_tiktok_shop_extra(session: AsyncSession, days: int) -> dict[str, A
     return {"days": days, "stats": stats, "problems": problems}
 
 
+async def run_tiktok_creator(session: AsyncSession, days: int) -> dict[str, Any]:
+    """Cuenta de creador propia: perfil, vitrina, pedidos y catálogo de afiliados (solo lectura).
+
+    `days` no aplica: la API no filtra pedidos por fecha. El modo (completo semanal / ligero diario) lo decide
+    `sync_creator` según la última carga completa registrada en `ops.sync_run`.
+    """
+    result = await sync_creator(session, TikTokCreatorClient())
+    return {**result, "days": days}
+
+
 RUNNERS: dict[str, Runner] = {
     "tiktok_shop": run_tiktok,
     "tiktok_ads": run_tiktok_ads,
@@ -139,6 +152,7 @@ RUNNERS: dict[str, Runner] = {
     "walmart_insights": run_walmart_insights,
     "tiktok_organic": run_tiktok_organic,
     "tiktok_shop_extra": run_tiktok_shop_extra,
+    "tiktok_creator": run_tiktok_creator,
 }
 SETTINGS: dict[str, Callable[[], Any]] = {
     "tiktok_shop": TikTokShopSettings,
@@ -148,6 +162,7 @@ SETTINGS: dict[str, Callable[[], Any]] = {
     "walmart_insights": WalmartSettings,
     "tiktok_shop_extra": TikTokShopSettings,
     "tiktok_organic": ConnectedTikTokOrganicSettings,  # exige archivo de tokens: sin autorización se omite
+    "tiktok_creator": TikTokCreatorSettings,  # idem: sin tokens_creator.json la fuente no cuenta como configurada
 }
 
 
