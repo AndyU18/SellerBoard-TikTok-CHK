@@ -1272,3 +1272,198 @@ class TikTokCreatorOrder(Base):
     currency: Mapped[str | None] = mapped_column(String)
     payload: Mapped[dict | None] = mapped_column(JSON)
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class CredentialRotation(Base):
+    """Plataforma cuyas credenciales ya se rotaron (sin fila = pendiente). ops.credential_rotation."""
+
+    __tablename__ = "credential_rotation"
+    __table_args__ = ({"schema": "ops"},)
+
+    platform: Mapped[str] = mapped_column(String, primary_key=True)
+    rotated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    rotated_by_email: Mapped[str | None] = mapped_column(String)
+    note: Mapped[str | None] = mapped_column(String)
+
+
+class CredentialScopeSnapshot(Base):
+    """Un permiso (scope) concedido a una plataforma; solo el NOMBRE, nunca un valor. ops.credential_scope_snapshot."""
+
+    __tablename__ = "credential_scope_snapshot"
+    __table_args__ = ({"schema": "ops"},)
+
+    platform: Mapped[str] = mapped_column(String, primary_key=True)
+    scope: Mapped[str] = mapped_column(String, primary_key=True)
+    level: Mapped[str] = mapped_column(String)  # read | write | delete
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class TikTokCsConversation(Base):
+    """Conversación de servicio al cliente de TikTok Shop: SOLO cifras y metadatos, nunca texto ni personas.
+
+    Sin nombres, ids de comprador, mensajes, teléfonos ni direcciones. `category` se derivó del texto en memoria
+    y el texto se descartó. ops.tiktok_cs_conversation.
+    """
+
+    __tablename__ = "tiktok_cs_conversation"
+    __table_args__ = ({"schema": "ops"},)
+
+    conversation_id: Mapped[str] = mapped_column(String, primary_key=True)  # id opaco de TikTok
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    last_sender_role: Mapped[str | None] = mapped_column(String)  # buyer | seller | bot | system
+    last_message_type: Mapped[str | None] = mapped_column(String)
+    unread_count: Mapped[int] = mapped_column(Integer, default=0)
+    can_send_message: Mapped[bool] = mapped_column(Boolean, default=True)
+    message_count: Mapped[int] = mapped_column(Integer, default=0)
+    buyer_messages: Mapped[int] = mapped_column(Integer, default=0)
+    seller_messages: Mapped[int] = mapped_column(Integer, default=0)
+    bot_messages: Mapped[int] = mapped_column(Integer, default=0)
+    system_messages: Mapped[int] = mapped_column(Integer, default=0)
+    type_counts: Mapped[dict | None] = mapped_column(JSON)  # {"TEXT": 3, "ORDER_CARD": 1}
+    day_counts: Mapped[dict | None] = mapped_column(JSON)  # {"2026-11-20": {"b": 2, "s": 1}} en la zona del reporte
+    category: Mapped[str] = mapped_column(String, default="other", index=True)
+    first_buyer_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    first_response_seconds: Mapped[int | None] = mapped_column(Integer)
+    waiting_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String, default="closed", index=True)  # waiting_seller | waiting_buyer | closed
+    messages_complete: Mapped[bool] = mapped_column(Boolean, default=True)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class TikTokCsDaily(Base):
+    """Historial diario del servicio al cliente: volumen, tiempos y métricas oficiales de TikTok. ops.tiktok_cs_daily."""
+
+    __tablename__ = "tiktok_cs_daily"
+    __table_args__ = ({"schema": "ops"},)
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    new_conversations: Mapped[int] = mapped_column(Integer, default=0)
+    buyer_messages: Mapped[int] = mapped_column(Integer, default=0)
+    seller_messages: Mapped[int] = mapped_column(Integer, default=0)
+    responded_conversations: Mapped[int] = mapped_column(Integer, default=0)
+    avg_response_seconds: Mapped[int | None] = mapped_column(Integer)
+    median_response_seconds: Mapped[int | None] = mapped_column(Integer)
+    pending_at_close: Mapped[int | None] = mapped_column(Integer)  # solo se conoce el día en que se sincronizó
+    official_sessions: Mapped[int | None] = mapped_column(Integer)
+    official_response_percentage: Mapped[Decimal | None] = mapped_column(Numeric(9, 4))
+    official_response_seconds: Mapped[int | None] = mapped_column(Integer)
+    official_satisfaction_percentage: Mapped[Decimal | None] = mapped_column(Numeric(9, 4))
+    official_conversion_percentage: Mapped[Decimal | None] = mapped_column(Numeric(9, 4))
+    official_guided_gmv: Mapped[Decimal | None] = mapped_column(Money)
+    official_currency: Mapped[str | None] = mapped_column(String)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class TikTokCsState(Base):
+    """Estado pequeño del módulo (cursor de la carga inicial, ajustes de agentes). ops.tiktok_cs_state."""
+
+    __tablename__ = "tiktok_cs_state"
+    __table_args__ = ({"schema": "ops"},)
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[dict | None] = mapped_column(JSON)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class TikTokMarketCreator(Base):
+    """Creador PÚBLICO del mercado de creadores del vendedor. ops.tiktok_market_creator."""
+
+    __tablename__ = "tiktok_market_creator"
+    __table_args__ = ({"schema": "ops"},)
+
+    creator_open_id: Mapped[str] = mapped_column(String, primary_key=True)  # id opaco: la API no da el numérico
+    username: Mapped[str | None] = mapped_column(String, index=True)
+    nickname: Mapped[str | None] = mapped_column(String)
+    avatar_url: Mapped[str | None] = mapped_column(String)
+    region: Mapped[str | None] = mapped_column(String)
+    follower_count: Mapped[int] = mapped_column(BigInteger, default=0, index=True)
+    creator_level: Mapped[int | None] = mapped_column(Integer)
+    category_ids: Mapped[list | None] = mapped_column(JSON)  # ids de categorías de primer nivel de TikTok
+    gmv_amount: Mapped[Decimal | None] = mapped_column(Money)
+    video_gmv_amount: Mapped[Decimal | None] = mapped_column(Money)
+    gmv_range: Mapped[str | None] = mapped_column(String)  # texto de TikTok: "$25K-$60K"
+    gmv_range_min: Mapped[Decimal | None] = mapped_column(Money)
+    units_sold_range: Mapped[str | None] = mapped_column(String)
+    units_sold_min: Mapped[int | None] = mapped_column(BigInteger)
+    avg_video_views: Mapped[int | None] = mapped_column(BigInteger)
+    avg_live_viewers: Mapped[int | None] = mapped_column(BigInteger)
+    demographics: Mapped[dict | None] = mapped_column(JSON)
+    currency: Mapped[str | None] = mapped_column(String)
+    engagement_rate: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))  # fracción (unidad de TikTok sin documentar)
+    live_engagement_rate: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
+    gpm_amount: Mapped[Decimal | None] = mapped_column(Money)
+    avg_gmv_per_buyer: Mapped[Decimal | None] = mapped_column(Money)
+    avg_commission_rate: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
+    rating: Mapped[Decimal | None] = mapped_column(Numeric(6, 3))
+    promoted_product_num: Mapped[int | None] = mapped_column(Integer)
+    brand_collaboration_count: Mapped[int | None] = mapped_column(Integer)
+    units_sold_total: Mapped[int | None] = mapped_column(BigInteger)
+    detail_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # cuándo se leyó su ficha
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+
+
+class TikTokMarketCreatorSnapshot(Base):
+    """Foto semanal (lunes) de seguidores y GMV de un creador del mercado. ops.tiktok_market_creator_snapshot."""
+
+    __tablename__ = "tiktok_market_creator_snapshot"
+    __table_args__ = ({"schema": "ops"},)
+
+    creator_open_id: Mapped[str] = mapped_column(String, primary_key=True)
+    week_start: Mapped[date] = mapped_column(Date, primary_key=True, index=True)
+    follower_count: Mapped[int] = mapped_column(BigInteger, default=0)
+    gmv_amount: Mapped[Decimal | None] = mapped_column(Money)
+    gmv_range_min: Mapped[Decimal | None] = mapped_column(Money)
+
+
+class TikTokOpenCollaboration(Base):
+    """Colaboración abierta propia: producto y comisión ofrecida. ops.tiktok_open_collaboration."""
+
+    __tablename__ = "tiktok_open_collaboration"
+    __table_args__ = ({"schema": "ops"},)
+
+    collaboration_id: Mapped[str] = mapped_column(String, primary_key=True)
+    product_id: Mapped[str | None] = mapped_column(String, index=True)
+    product_title: Mapped[str | None] = mapped_column(String)
+    image_url: Mapped[str | None] = mapped_column(String)
+    currency: Mapped[str | None] = mapped_column(String)
+    price_min: Mapped[Decimal | None] = mapped_column(Money)
+    price_max: Mapped[Decimal | None] = mapped_column(Money)
+    inventory: Mapped[int | None] = mapped_column(BigInteger)
+    product_status: Mapped[str | None] = mapped_column(String)
+    status: Mapped[str | None] = mapped_column(String)
+    commission_rate: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))  # fracción: 0.145 = 14,5 %
+    commission_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    commission_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    creator_count: Mapped[int | None] = mapped_column(Integer)
+    showcase_creator_count: Mapped[int | None] = mapped_column(Integer)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class TikTokTargetCollaboration(Base):
+    """Colaboración dirigida propia (invitación a creadores concretos). ops.tiktok_target_collaboration."""
+
+    __tablename__ = "tiktok_target_collaboration"
+    __table_args__ = ({"schema": "ops"},)
+
+    collaboration_id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str | None] = mapped_column(String)
+    kind: Mapped[str | None] = mapped_column(String)
+    status: Mapped[str | None] = mapped_column(String)
+    product_count: Mapped[int | None] = mapped_column(Integer)
+    creator_count: Mapped[int | None] = mapped_column(Integer)
+    invited_count: Mapped[int | None] = mapped_column(Integer)
+    showcase_creator_count: Mapped[int | None] = mapped_column(Integer)
+    start_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    end_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    has_free_sample: Mapped[bool] = mapped_column(Boolean, default=False)
+    sample_approval_exempt: Mapped[bool] = mapped_column(Boolean, default=False)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)

@@ -38,6 +38,15 @@ export type TikTokTab =
   | 'creatorInsights'
   | 'creatorOrders'
   | 'creatorShowcase'
+  | 'csOverview'
+  | 'csConversations'
+  | 'csResponseTimes'
+  | 'csCategories'
+  | 'csBacklog'
+  | 'marketCreators'
+  | 'marketCandidates'
+  | 'marketCollaborations'
+  | 'marketInsights'
 
 export type TikTokMenuItem = {
   id: TikTokTab
@@ -89,6 +98,17 @@ export const TIKTOK_MENU: TikTokMenuItem[] = [
   { id: 'creatorOrders', label: 'Pedidos de afiliado', group: 'TikTok Creator' },
   { id: 'creatorShowcase', label: 'Vitrina', group: 'TikTok Creator' },
   { id: 'creatorProfile', label: 'Cuenta de creador', group: 'TikTok Creator' },
+
+  { id: 'csOverview', label: 'Panorama', group: 'Servicio al cliente' },
+  { id: 'csConversations', label: 'Conversaciones', group: 'Servicio al cliente' },
+  { id: 'csResponseTimes', label: 'Tiempos de respuesta', group: 'Servicio al cliente' },
+  { id: 'csCategories', label: 'Categorías', group: 'Servicio al cliente' },
+  { id: 'csBacklog', label: 'Pendientes', group: 'Servicio al cliente' },
+
+  { id: 'marketInsights', label: 'Panorama del mercado', group: 'Mercado de creadores' },
+  { id: 'marketCreators', label: 'Buscar creadores', group: 'Mercado de creadores' },
+  { id: 'marketCandidates', label: 'Candidatos recomendados', group: 'Mercado de creadores' },
+  { id: 'marketCollaborations', label: 'Colaboraciones', group: 'Mercado de creadores' },
 ]
 
 export const TIKTOK_DEFAULT_TAB: TikTokTab = 'overview'

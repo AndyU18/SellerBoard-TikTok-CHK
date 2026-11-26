@@ -22,6 +22,15 @@ import { TikTokCreatorOpportunities } from '@/pages/tiktok/TikTokCreatorOpportun
 import { TikTokCreatorOrders } from '@/pages/tiktok/TikTokCreatorOrders'
 import { TikTokCreatorProfile } from '@/pages/tiktok/TikTokCreatorProfile'
 import { TikTokCreatorShowcase } from '@/pages/tiktok/TikTokCreatorShowcase'
+import { TikTokCsBacklog } from '@/pages/tiktok/TikTokCsBacklog'
+import { TikTokCsCategories } from '@/pages/tiktok/TikTokCsCategories'
+import { TikTokCsConversations } from '@/pages/tiktok/TikTokCsConversations'
+import { TikTokCsOverview } from '@/pages/tiktok/TikTokCsOverview'
+import { TikTokCsResponseTimes } from '@/pages/tiktok/TikTokCsResponseTimes'
+import { TikTokMarketCandidates } from '@/pages/tiktok/TikTokMarketCandidates'
+import { TikTokMarketCollaborations } from '@/pages/tiktok/TikTokMarketCollaborations'
+import { TikTokMarketCreators } from '@/pages/tiktok/TikTokMarketCreators'
+import { TikTokMarketInsights } from '@/pages/tiktok/TikTokMarketInsights'
 import { TikTokOrders } from '@/pages/tiktok/TikTokOrders'
 import { TikTokOrganicConnection } from '@/pages/tiktok/TikTokOrganicConnection'
 import { TikTokOrganicHashtags } from '@/pages/tiktok/TikTokOrganicHashtags'
@@ -79,10 +88,24 @@ const SCREENS: Record<TikTokTab, Screen> = {
   creatorInsights: TikTokCreatorInsights,
   creatorOrders: TikTokCreatorOrders,
   creatorShowcase: TikTokCreatorShowcase,
+  csOverview: TikTokCsOverview,
+  csConversations: TikTokCsConversations,
+  csResponseTimes: TikTokCsResponseTimes,
+  csCategories: TikTokCsCategories,
+  csBacklog: TikTokCsBacklog,
+  marketCreators: TikTokMarketCreators,
+  marketCandidates: TikTokMarketCandidates,
+  marketCollaborations: TikTokMarketCollaborations,
+  marketInsights: TikTokMarketInsights,
 }
 
 /** Texto del título según el grupo del menú: cada grupo es una parte distinta de TikTok. */
-const SPACE_TITLE: Record<string, string> = { 'TikTok orgánico': 'TikTok orgánico', 'TikTok Creator': 'TikTok Creator' }
+const SPACE_TITLE: Record<string, string> = {
+  'TikTok orgánico': 'TikTok orgánico',
+  'TikTok Creator': 'TikTok Creator',
+  'Servicio al cliente': 'TikTok · Servicio al cliente',
+  'Mercado de creadores': 'TikTok · Mercado de creadores',
+}
 
 /**
  * Espacio "TikTok": un solo apartado del menú lateral con lista desplegable. Todo lo que se muestra aquí está

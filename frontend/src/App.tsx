@@ -33,6 +33,7 @@ import {
   Scale,
   ScrollText,
   Ship,
+  ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
@@ -89,6 +90,7 @@ import { MinPrice } from '@/pages/MinPrice'
 import { SampleStrategy } from '@/pages/SampleStrategy'
 import { SettlementAging } from '@/pages/SettlementAging'
 import { loadTikTokTab, saveTikTokTab, TIKTOK_MENU, type TikTokTab } from '@/components/tiktok/tiktokMenu'
+import { SecurityHub } from '@/pages/SecurityHub'
 import { TikTokHub } from '@/pages/TikTokHub'
 import { WalmartHub } from '@/pages/WalmartHub'
 import { OrderProfit } from '@/pages/OrderProfit'
@@ -129,6 +131,7 @@ type Page =
   | 'ads'
   | 'walmart'
   | 'tiktok'
+  | 'security'
   | 'actionCenter'
   | 'costRisk'
   | 'settlementAging'
@@ -205,6 +208,7 @@ const NAV: NavItem[] = [
   { group: 'Catálogo y datos', id: 'costs', label: 'Costos (COGS)', icon: <Coins className={icon} />, permission: 'catalog.view' },
   { group: 'Catálogo y datos', id: 'export', label: 'Exportar', icon: <Download className={icon} />, permission: 'profit.view' },
   { group: 'Catálogo y datos', id: 'import', label: 'Importar', icon: <Upload className={icon} />, permission: 'import.run' },
+  { group: 'Administración', id: 'security', label: 'Seguridad', icon: <ShieldAlert className={icon} />, permission: 'settings.view' },
   { group: 'Administración', id: 'users', label: 'Usuarios', icon: <UsersIcon className={icon} />, permission: 'users.view' },
 ]
 
@@ -367,8 +371,8 @@ export default function App() {
             <LogOut className="size-4" />
           </button>
         </nav>
-        {current !== 'import' && current !== 'walmart' && current !== 'tiktok' && <ScopeBar />}
-        {current !== 'import' && current !== 'walmart' && current !== 'tiktok' && (
+        {current !== 'import' && current !== 'walmart' && current !== 'tiktok' && current !== 'security' && <ScopeBar />}
+        {current !== 'import' && current !== 'walmart' && current !== 'tiktok' && current !== 'security' && (
           <PageHeader
             title={nav.find((n) => n.id === current)?.label ?? ''}
             showKpis={!NO_KPI_PAGES.includes(current)}
@@ -388,6 +392,7 @@ export default function App() {
           {current === 'notifications' && <Notifications />}
           {current === 'export' && <ExportCenter />}
           {current === 'users' && <Users />}
+          {current === 'security' && <SecurityHub />}
           {current === 'pnl' && <Pnl />}
           {current === 'pareto' && <Pareto />}
           {current === 'versus' && <Versus />}

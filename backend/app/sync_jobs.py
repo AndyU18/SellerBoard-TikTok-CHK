@@ -26,6 +26,7 @@ from app.connectors.tiktok_ads import (
     sync_tiktok_ads,
 )
 from app.connectors.tiktok_creator import TikTokCreatorClient, TikTokCreatorSettings
+from app.connectors.tiktok_creator_market import CreatorMarketClient
 from app.connectors.tiktok_organic import (
     ConnectedTikTokOrganicSettings,
     TikTokOrganicClient,
@@ -38,13 +39,15 @@ from app.connectors.walmart import WalmartClient, WalmartSettings, sync_walmart
 from app.connectors.walmart_insights import sync_walmart_insights
 from app.gold import refresh_daily_profit
 from app.models import SyncRun
+from app.tiktok_creator_market_ops import sync_creator_market
 from app.tiktok_creator_ops import sync_creator
 from app.tiktok_organic_ops import save_snapshot as save_tiktok_organic
+from app.tiktok_service_ops import sync_service
 
 log = logging.getLogger("chk.sync")
 
 # Orden: primero las órdenes, después las etiquetas de Redo, que se unen a ellas.
-SOURCES = ("tiktok_shop", "tiktok_ads", "walmart", "redo", "walmart_insights", "tiktok_organic", "tiktok_shop_extra", "tiktok_creator")
+SOURCES = ("tiktok_shop", "tiktok_ads", "walmart", "redo", "walmart_insights", "tiktok_organic", "tiktok_shop_extra", "tiktok_creator", "tiktok_service", "tiktok_creator_market")
 LABELS = {
     "tiktok_shop": "TikTok Shop",
     "tiktok_ads": "TikTok Ads (publicidad)",
@@ -54,6 +57,8 @@ LABELS = {
     "tiktok_organic": "TikTok orgánico (perfil y videos)",
     "tiktok_shop_extra": "TikTok Shop (catálogo, promociones, paquetes, pagos)",
     "tiktok_creator": "TikTok Creator (catálogo de afiliados y pedidos)",
+    "tiktok_service": "TikTok Shop (servicio al cliente)",
+    "tiktok_creator_market": "TikTok Shop (mercado de creadores y colaboraciones)",
 }
 STALE_RUNNING = timedelta(minutes=30)  # una ejecución "en curso" más vieja que esto se considera caída
 
@@ -144,6 +149,25 @@ async def run_tiktok_creator(session: AsyncSession, days: int) -> dict[str, Any]
     return {**result, "days": days}
 
 
+async def run_tiktok_service(session: AsyncSession, days: int) -> dict[str, Any]:
+    """Servicio al cliente de TikTok Shop: SOLO cifras y metadatos (nunca texto, nombres ni ids de comprador).
+
+    Incremental y con tope por corrida (ver `app.tiktok_service_ops`): la carga inicial se completa en varias
+    corridas. `days` no aplica: la ventana es fija (HISTORY_DAYS).
+    """
+    stats, problems = await sync_service(session, TikTokShopClient())
+    return {"days": days, "stats": stats, "problems": problems}
+
+
+async def run_tiktok_creator_market(session: AsyncSession, days: int) -> dict[str, Any]:
+    """Mercado de creadores y colaboraciones del vendedor (solo lectura), ligero con carga amplia semanal.
+
+    `days` no aplica: la API no filtra por fecha. Los topes por corrida y el modo (completo semanal / ligero)
+    los decide `sync_creator_market`.
+    """
+    return {**await sync_creator_market(session, CreatorMarketClient(TikTokShopClient())), "days": days}
+
+
 RUNNERS: dict[str, Runner] = {
     "tiktok_shop": run_tiktok,
     "tiktok_ads": run_tiktok_ads,
@@ -153,6 +177,8 @@ RUNNERS: dict[str, Runner] = {
     "tiktok_organic": run_tiktok_organic,
     "tiktok_shop_extra": run_tiktok_shop_extra,
     "tiktok_creator": run_tiktok_creator,
+    "tiktok_service": run_tiktok_service,
+    "tiktok_creator_market": run_tiktok_creator_market,
 }
 SETTINGS: dict[str, Callable[[], Any]] = {
     "tiktok_shop": TikTokShopSettings,
@@ -162,6 +188,8 @@ SETTINGS: dict[str, Callable[[], Any]] = {
     "walmart_insights": WalmartSettings,
     "tiktok_shop_extra": TikTokShopSettings,
     "tiktok_organic": ConnectedTikTokOrganicSettings,  # exige archivo de tokens: sin autorización se omite
+    "tiktok_service": TikTokShopSettings,
+    "tiktok_creator_market": TikTokShopSettings,
     "tiktok_creator": TikTokCreatorSettings,  # idem: sin tokens_creator.json la fuente no cuenta como configurada
 }
 

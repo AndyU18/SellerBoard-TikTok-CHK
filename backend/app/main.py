@@ -19,6 +19,7 @@ from app.chartdata_resumen import router as chartdata_resumen_router
 from app.config import settings
 from app.cost_risk_api import router as cost_risk_router
 from app.creator_profit_api import router as creator_profit_router
+from app.credential_audit_api import router as security_router
 from app.db import SessionLocal, init_db
 from app.export_api import router as export_router
 from app.min_price_api import router as min_price_router
@@ -33,8 +34,10 @@ from app.simulator_api import router as simulator_router
 from app.sku_api import router as sku_router
 from app.sync_jobs import auto_sync_loop
 from app.tiktok_creator_api import router as tiktok_creator_router
+from app.tiktok_creator_market_api import router as tiktok_creator_market_router
 from app.tiktok_extra_api import router as tiktok_extra_router
 from app.tiktok_organic_api import router as tiktok_organic_router
+from app.tiktok_service_api import router as tiktok_service_router
 from app.users_admin_api import router as users_admin_router
 from app.users_api import router as users_router
 from app.walmart_api import router as walmart_router
@@ -78,6 +81,9 @@ app.include_router(walmart_router)
 app.include_router(tiktok_organic_router)
 app.include_router(tiktok_extra_router)
 app.include_router(tiktok_creator_router)
+app.include_router(tiktok_service_router)
+app.include_router(tiktok_creator_market_router)
+app.include_router(security_router)
 app.include_router(walmart_payments_router)
 app.include_router(cost_risk_router)
 app.include_router(settlement_aging_router)  # antes que settlement_router: "/aging" no debe caer en "/{id}/waterfall"

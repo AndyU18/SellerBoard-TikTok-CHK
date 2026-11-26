@@ -20,6 +20,9 @@ PROVIDER_MODULES: tuple[str, ...] = (
     "app.walmart_actions",  # pedidos por vencer, calidad de listados, feeds con fallos y repricer de Walmart
     "app.tiktok_actions",  # listados rechazados, paquetes atascados y pagos con problemas de TikTok Shop
     "app.tiktok_creator_actions",  # productos nuevos del catálogo de afiliados para promocionar (cuenta de creador)
+    "app.credential_actions",  # credenciales expuestas por rotar y permisos de escritura sobrantes de los tokens
+    "app.tiktok_service_actions",  # conversaciones de servicio al cliente de TikTok sin responder, por antigüedad
+    "app.tiktok_creator_market_actions",  # mejores creadores nuevos del mercado para invitar
 )
 
 
