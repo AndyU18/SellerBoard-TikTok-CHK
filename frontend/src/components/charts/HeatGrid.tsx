@@ -28,7 +28,7 @@ export function HeatGrid({
   return (
     <div>
       <div className="overflow-x-auto">
-        <div className="grid min-w-[36rem] gap-0.5" style={{ gridTemplateColumns: `4.5rem repeat(${colLabels.length}, minmax(0, 1fr))` }}>
+        <div className="grid min-w-xl gap-0.5" style={{ gridTemplateColumns: `4.5rem repeat(${colLabels.length}, minmax(0, 1fr))` }}>
           <div />
           {colLabels.map((c) => (
             <div key={c} className="text-muted-foreground text-center text-[10px]">

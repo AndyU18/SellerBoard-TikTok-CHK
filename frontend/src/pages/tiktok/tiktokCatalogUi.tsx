@@ -58,7 +58,7 @@ export function SidePanel({ title, subtitle, onClose, children }: { title: strin
       <aside role="dialog" aria-modal="true" aria-label={title} className="relative h-full w-full max-w-lg overflow-y-auto bg-white p-5 shadow-xl dark:bg-slate-900">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-lg leading-tight font-semibold break-words">{title}</h2>
+            <h2 className="text-lg leading-tight font-semibold wrap-break-word">{title}</h2>
             {subtitle && <p className="text-muted-foreground mt-0.5 text-xs break-all">{subtitle}</p>}
           </div>
           <button
